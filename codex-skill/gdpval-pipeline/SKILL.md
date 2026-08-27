@@ -1,0 +1,57 @@
+---
+name: "gdpval-pipeline"
+description: "Build, inspect, validate, and release GDPval task packages using the repository's evidence-bound v4 pipeline. Use when a task involves GDPval roles, rubric contracts, real deliverables, strict validation, human-review evidence, or deterministic packaging."
+metadata:
+  short-description: "Operate the GDPval evidence pipeline"
+---
+
+# GDPval Pipeline
+
+Use this skill for GDPval task-package work. Treat the repository's
+`产线规范/agent_roles.json` and `产线规范/policy.json` as the machine-readable
+source of truth; do not invent a parallel policy in prompts or scripts.
+
+## Safety and evidence boundary
+
+- Keep evaluator-only task data, real deliverables, reviewer records, workbench
+  state, staging output, and generated ZIPs outside the source repository unless
+  the task explicitly requires a local working copy. Never commit them.
+- `deliverable_files` are real Gold files. Preserve them byte-for-byte and
+  require per-file source URL and SHA-256 evidence. `reference_files` may be
+  reconstructed from authentic sources within the allowed formats, but must not
+  contain answer-bearing evaluator data.
+- Keep prompt and rubric language consistent. Rubric items must total 100,
+  satisfy the configured sampled count/lower bound, and default `required` to
+  true when omitted.
+- Do not mark a workflow release-ready from a boolean or a command exit code.
+  Use the fixed validator, bind current human-review evidence, and perform the
+  deterministic two-archive hash check.
+
+## Efficient execution
+
+1. Inspect the current workflow with `python3 pipeline/manage.py next ...`.
+2. Dispatch every independent ready role up to the configured slot limit. After
+   T12, T13 and T14 can run in parallel; T15 waits for both.
+3. Ask each agent for a complete first pass near the configured quality target
+   (currently 80) and a compact risk ledger. This target reduces rework but is
+   not a release gate.
+4. On failure, use the declared `reason_code`. Rebuild the earliest routed role
+   and all stale descendants; never hand-edit stale status back to current.
+5. Run strict validation only after all three human-review layers and closure
+   evidence are present. Register H-REG after validation, then package twice and
+   compare SHA-256 values.
+
+## Useful commands
+
+```bash
+cd build
+python3 pipeline/manage.py next workbench --slots 4 --json
+python3 pipeline/orchestrator.py status workbench/<task_id>
+python3 pipeline/orchestrator.py record-validation \
+  workbench/<task_id> delivery
+python3 pipeline/orchestrator.py record-human-review \
+  workbench/<task_id> <human_review_record.json>
+```
+
+Read `产线规范/pipeline设计.md` for the full role isolation matrix, rework
+routing, human-review timing rule, and release invariants.

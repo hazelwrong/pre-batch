@@ -1,0 +1,57 @@
+flowchart TB
+  subgraph INTAKE["入口：先挡住便宜可见的问题"]
+    direction LR
+    H0["真实材料与许可登记<br/>人"]
+    T10["T10 · A-xxx · L0/人<br/>职责：Gold 落地与 provenance<br/>IN material_pool, source_manifest, occupation_standard<br/>OUT gold, gold_provenance, production_notes"]
+    PRE{{"PRE 固定技术预检<br/>非空 · 元数据 · 恶意内容 · 路径 · 密钥 · 许可"}}
+    H0 --> T10 --> PRE
+  end
+
+  B0{{"批次 wave planner<br/>任务间最多 4 slot 并行<br/>单任务只派最早 non-current 节点"}}
+
+  subgraph TASK["单任务 lane：必要依赖串行，不重跑 current 前驱"]
+    direction LR
+    T11["T11 · A-xxx · L4/high<br/>职责：任务蓝图与输入设计<br/>IN coverage, standard, gold, provenance<br/>OUT blueprint, design_notes, ref_spec, lineage"]
+    SREF["S-REF · L0<br/>由 ref_spec 确定性生成 references"]
+    T12["T12 · A-xxx · L2/medium<br/>职责：Prompt 自足性表达<br/>IN standard, blueprint, references<br/>OUT prompt, output_contract"]
+    T13["T13 · A-xxx · L4/high<br/>职责：冷上下文独立解题<br/>IN references, prompt<br/>OUT solver_deliverables, solver_report"]
+    G1{{"G1 自足 · 可解 · 多步 · 无泄漏"}}
+    T14["T14 · A-xxx · L3/medium<br/>职责：冷复算与双向 lineage<br/>IN standard, references, prompt, gold, lineage<br/>OUT expected_values, verifier_report"]
+    G3{{"G3 复算一致 · lineage 有效"}}
+    T15["T15 · A-xxx · L3/medium<br/>职责：Rubric 可判性设计<br/>IN standard, references, prompt, gold, expected_values, policy<br/>OUT rubric"]
+    G4{{"G4 可预见 · 可判 · 粒度/分数正确"}}
+    T11 --> SREF --> T12
+    T12 --> T13 --> G1
+    T12 --> T14 --> G3
+    G1 --> T15
+    G3 --> T15 --> G4
+  end
+
+  subgraph RELEASE["人审与发布核"]
+    direction LR
+    H21["H21 通用审查<br/>真人 1 · 结构/来源/泄漏"]
+    H22["H22 职业专家审查<br/>真人 2 · 资质状态如实登记 · 实质驳回<br/>Gold 评分 · rubric 采纳"]
+    CLOSE{{"意见闭环<br/>逐项 disposition · 证据 · 带时区 closed_at"}}
+    H23["H23 最终终审<br/>真人 3 · 不代签前两层<br/>reviewed_at &gt; max(前两层, 全部 closed_at)"]
+    G7{{"G7 人审证据齐全<br/>Gold 达阈值"}}
+    VAL["Strict final validation<br/>逐任务 + 批次聚合"]
+    G5{{"G5<br/>failed=0 · not_run=0 · stale=0"}}
+    HREG["H-REG · L0<br/>登记已完成人审，绑定 validation digest"]
+    PKG["S-PKG · L0<br/>冻结 snapshot，连续打包两次"]
+    REL{{"发布<br/>全任务 ready · 两次 zip SHA-256 一致"}}
+    H21 --> CLOSE
+    H22 --> CLOSE
+    CLOSE --> H23 --> G7 --> VAL --> G5 --> HREG --> PKG --> REL
+  end
+
+  ROUTE["Reason-code 局部回流<br/>T13.MISSING_PROMPT_FACT → T12<br/>T13.SCENARIO_UNSOLVABLE → T11<br/>T14.GOLD_MISMATCH → T10<br/>T14.REFERENCE_FACT_GAP → T11<br/>T15.RUBRIC_STRUCTURE → T15<br/>T15.HIDDEN_REQUIREMENT → T12<br/>人审/最终校验 → 产物最早责任角色"]
+
+  PRE -- passed --> B0 --> T11
+  G4 -- passed --> H21
+  G4 -- passed --> H22
+  G1 -. failed .-> ROUTE
+  G3 -. failed .-> ROUTE
+  G4 -. failed .-> ROUTE
+  G7 -. 整改 .-> ROUTE
+  G5 -. failed .-> ROUTE
+  ROUTE --> B0

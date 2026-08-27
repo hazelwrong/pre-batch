@@ -1,0 +1,259 @@
+{
+  "schema_version": "1.0",
+  "note": "全 pipeline 的可调口径。凡是甲方口径可能变、或规范之间打架的参数一律放这里，禁止散落在脚本里硬编码。改这个文件会使依赖它的 rubric 与门禁记录 stale。",
+  "conflict_priority": [
+    "delivery2 实测",
+    "甲方书面需求文档",
+    "官方样例 CSV（220 条）",
+    "任务包建设与自审规范",
+    "rubric生成规范（附件）"
+  ],
+  "execution": {
+    "contract_version": "4.0",
+    "concurrency_slots": 4,
+    "max_agent_runs_per_task": 12,
+    "max_attempts_per_role": {
+      "gold_curator": 2,
+      "task_designer": 3,
+      "prompt_author": 3,
+      "solver": 2,
+      "verifier": 2,
+      "rubric": 2
+    },
+    "agent_run_accounting": "T10 is a human registration attempt and counts against its role attempt limit, but not max_agent_runs_per_task. T11-T15 attempts count as agent runs, including failed and abandoned prepared runs.",
+    "budget_exhaustion": "stop_and_escalate",
+    "first_pass_quality": {
+      "target_score": 80,
+      "target_scope": "agent self-check before submission",
+      "hard_gate": false,
+      "note": "80 分是首稿质量目标，不替代 strict validation 或人工审核；低于目标必须在提交说明中列出风险与预防性修正。"
+    },
+    "optional_inputs": {
+      "mode": "explicit_opt_in",
+      "default": "not_mounted",
+      "requirements": [
+        "input category is declared in the role optional_inputs list",
+        "the run request names the category",
+        "the run contract records the opt-in and artifact digest"
+      ]
+    }
+  },
+  "gold_source": {
+    "accepted_paths": [
+      "real_input_and_real_deliverable",
+      "desensitization"
+    ],
+    "rejected_paths": [
+      "generated_deliverable"
+    ],
+    "fallback_generated_gold_allowed": false,
+    "fallback_requires_written_client_approval": true,
+    "real_deliverable_integrity": {
+      "direct_copy_required": true,
+      "per_file_source_url_required": true,
+      "per_file_source_sha256_required": true,
+      "note": "deliverable_files 必须逐字节复制真实来源文件。不得转格式、重构、脱敏或清除元数据；每个文件须在 gold_provenance.real_deliverable_files 中登记 filename、source_url、source_sha256。"
+    },
+    "open_issue": "「gold 须由专家产出」的口径首轮提出至今未获甲方书面确认；现状 T001 走的是脚本起草+专家修订采纳，属于 rejected_paths，须单独挂账。",
+    "accepted_paths_note": "甲方 2026-08-23 口径:deliverable 真实、reference 经脱敏重构时,source_type 必须标注字面值 `desensitization`,而非 synthetic 或长别名。旧包如仍使用别名,必须迁移后才能进入 v4 发布门。"
+  },
+  "reference_files": {
+    "allowed_formats": [
+      "md",
+      "xlsx",
+      "csv",
+      "tsv",
+      "xml",
+      "json"
+    ],
+    "forbidden_formats": [
+      "pdf"
+    ],
+    "min_files_per_task": 1,
+    "naming": "像真实业务文件：允许空格、版本尾巴、(1)、日期区间；禁止 store_profile.xlsx 式工程化命名",
+    "metadata_strip": {
+      "remove_dirs": [
+        "docProps/",
+        "customXml/"
+      ],
+      "fix_dangling_refs": [
+        "[Content_Types].xml",
+        "_rels/.rels"
+      ],
+      "zip_timestamp": "fixed",
+      "pypdf_note": "add_metadata({}) 不够，须另设 writer._info = None"
+    },
+    "format_note": "md 用于政策/规程/说明类，xlsx 用于台账/明细，csv/tsv/xml/json 用于结构化数据与系统导出。禁 PDF：脚本生成的 PDF 版式高度雷同，是「合成数据」最容易暴露的破绽，且同样内容比 md 贵好几倍 token。"
+  },
+  "rubric": {
+    "item_count_distribution": {
+      "distribution": "normal",
+      "mean": 30,
+      "stddev": 10,
+      "lower_bound": 25,
+      "rounding": "nearest_integer"
+    },
+    "item_count_hard_min": 25,
+    "total_score": 100,
+    "required_field_default": true,
+    "required_field_allowed": [
+      true,
+      false
+    ],
+    "required_field_value": true,
+    "required_field_value_legacy_note": "兼容旧消费者：仅表示缺省值 true，不表示所有条目必须为 true。新代码应读取 required_field_default。",
+    "required_field_note": "缺少 required 时默认补 true；显式值按 hard-gate 语义允许 true 或 false，不得机械地把所有条目改成同一值。",
+    "keep_fields": {
+      "verification": true,
+      "score_levels": true,
+      "check": true
+    },
+    "keep_fields_note": "需求文档 §6 要求保留，官方样例 0 次出现，甲方两轮意见相反；按 delivery2 定死为保留，做成开关不写死",
+    "tags_values": [
+      "true",
+      "false"
+    ],
+    "tags_semantics": "true=看一眼文件就能判定；false=需要对质量或完整性作判断",
+    "negative_scoring_occupations": [
+      "音视频技术员",
+      "影视剪辑师",
+      "房地产经纪人",
+      "房地产销售代理"
+    ],
+    "forbidden_criteria": [
+      "交付物存在性",
+      "能否打开",
+      "是否为空",
+      "表名是否正确",
+      "页数",
+      "字数",
+      "章节数",
+      "与 gold 用词/颜色/版式相同"
+    ],
+    "gold_must_not_score_full": true,
+    "forbidden_criterion_terms": [
+      "page count",
+      "word count",
+      "number of sections",
+      "same wording as gold",
+      "opens without",
+      "file exists",
+      "is not empty",
+      "页数",
+      "字数",
+      "章节数",
+      "与 gold 相同",
+      "能否打开",
+      "文件存在",
+      "是否为空"
+    ],
+    "checks_coverage_rule": "rubric_checks/checks.json 必须为每个 rubric_item_id 给出条目：可程序化的写 {\"type\":..., \"params\":...}，不可程序化的写 {\"human\": true, \"reason\": ...}。缺项即视为「判不了就默认通过」，不予放行。",
+    "score_note": "单项分值为非负整数，不设 1-3 上限或 1-2 占比门槛；所有分值总和严格为 total_score。"
+  },
+  "gates": {
+    "gold_deliverable_eval_threshold": 60,
+    "gold_deliverable_eval_threshold_range": [
+      20,
+      60
+    ],
+    "gold_deliverable_eval_note": "所有 required 项必须可接；机器分与阈值重合不构成达标判断，人工分未补齐时须记 not_run 而不是记通过",
+    "separating_power": {
+      "strong_solver_min": "完成全部实质步骤",
+      "weak_solver_max_share": 0.7,
+      "note": "弱档解题得分接近强档说明任务缺区分度，退回 T11"
+    },
+    "no_environment_residue": [
+      "*.DS_Store",
+      "__MACOSX/",
+      "LibreOffice 标识",
+      "本地绝对路径",
+      "个人用户名",
+      "真实构建时钟"
+    ],
+    "deterministic_build": "连续两次构建 zip 哈希必须一致"
+  },
+  "language": {
+    "rule": "按职业与行业场景定：中国本土企业与中文工作语言的岗位写中文口语；对标国际的职业写英文",
+    "forbidden": [
+      "英译中翻译腔",
+      "规格书体",
+      "全大写小标题",
+      "DELIVERABLE 1/2 编号块",
+      "Mandatory: 前缀"
+    ],
+    "prompt_length_chars": {
+      "median_target": 2024,
+      "range": [
+        617,
+        6618
+      ]
+    }
+  },
+  "coverage": {
+    "sectors": 9,
+    "occupations": 44,
+    "per_occupation_target": 100,
+    "per_occupation_min": 50,
+    "max_share_per_sector": 0.12,
+    "per_task_family": [
+      4,
+      12
+    ],
+    "source_inventory_min": 5000
+  },
+  "human_review": {
+    "expert_profiles_required_per_task": 3,
+    "expert_profile_required_fields": [
+      "expert_id",
+      "alias",
+      "expert_role",
+      "expert_profile",
+      "strengths",
+      "first_thought"
+    ],
+    "expert_profile_timing": "Create one three-person expert_profiles.json after authentic business materials are researched and before reviewer recruitment.",
+    "expert_profile_alias_rule": "Planning aliases must be natural Chinese personal names of 2-4 Han characters, using common surnames and ordinary given names; no English, pinyin, role words, IDs, conspicuously literary combinations or AI-like names. Aliases must never be used as reviewer identities, signatures or credential evidence. A real reviewer's legal or actual signature must be preserved exactly and must never be translated or renamed merely to satisfy this alias rule.",
+    "layers": [
+      "general_review",
+      "occupational_expert_review",
+      "final_review"
+    ],
+    "distinct_signatories_required": 3,
+    "final_strictly_after_first_two": true,
+    "review_timestamps_require_timezone": true,
+    "closure_evidence_required": true,
+    "expert_rejection_required": true,
+    "expert_rejection_note": "全票通过的复核记录本身是可疑信号",
+    "adoption_scope": "rubric_version_reviewed 必须匹配当前 rubric 版本，否则不予采信",
+    "independence_claim": "supplier-recorded review; not represented as independent third-party certification",
+    "credential_verification_status": "not_supplied",
+    "credential_evidence_in_package_required": false,
+    "credential_status_when_evidence_absent": "not_supplied",
+    "credential_evidence_note": "甲方 2026-08-23 确认：delivery2 已通过包允许专家资质附件不提供。缺失时必须如实登记 credential_status=not_supplied，不得暗示已独立核验；真人姓名、职务、签名、带时区审查时间和实质意见仍为必填。"
+  },
+  "release": {
+    "staging_release_ready": false,
+    "gate_registry": "fixed_validation_registry",
+    "arbitrary_commands_are_release_evidence": false,
+    "required_status_counts": {
+      "failed": 0,
+      "not_run": 0,
+      "stale": 0
+    },
+    "all_tasks_required": true,
+    "human_review_evidence_precedes_final_validation": true,
+    "human_review_registration_follows_final_validation": true,
+    "deterministic_archive_hash_matches_twice": true,
+    "release_requires": [
+      "三层人工复核绑定当前角色 artifact digest 与 rubric 版本",
+      "gold 完整人工评分达到阈值",
+      "final validation 覆盖当前人审材料，且每条任务及批次级检查均为 passed，failed/not_run/stale 均为 0",
+      "H-REG 在 final validation 后登记人审记录并绑定 validation digest",
+      "连续两次构建 zip 哈希一致",
+      "三组 list 逐项等长",
+      "同索引同一物理文件",
+      "远程下载 SHA-256 与本地一致",
+      "URL 非安全字符已编码"
+    ]
+  }
+}

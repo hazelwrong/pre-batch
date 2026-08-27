@@ -1,0 +1,28 @@
+# Runtime and generated data
+build/tasks/
+build/workbench/
+build/staging/
+build/delivery/
+build/reports/
+build/*.zip
+build/**/gates/
+
+# Python/runtime noise
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# macOS/editor noise
+.DS_Store
+.AppleDouble
+.LSOverride
+*.swp
+
+# Local secrets and environment overrides
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.*

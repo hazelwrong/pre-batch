@@ -1,0 +1,440 @@
+{
+  "schema_version": "1.0",
+  "pipeline_version": "4.0",
+  "note": "GDPval pipeline v4 role contracts. T10-T15 are stable role identifiers; A-xxx identifies one concrete human or model run and must never be used as a role identifier. The Python orchestrator consumes input sets, budgets, model tiers and failure reason codes. completion_criteria are requirements whose evidence comes from role-specific checks and fixed preflight/validation, not from the declaration itself.",
+  "instance_identity": {
+    "role_id_pattern": "^T1[0-5]$",
+    "agent_instance_id_pattern": "^A-[0-9]{3,}$",
+    "rule": "T identifies responsibility; A identifies one attempt. A retry gets a new A id when fresh judgment is required."
+  },
+  "model_tiers": {
+    "L4": {
+      "label": "最高推理档",
+      "default_model": "claude-opus-5",
+      "thinking": "high",
+      "when": "任务是否成立由它决定，错一次整条任务作废"
+    },
+    "L3": {
+      "label": "高推理档",
+      "default_model": "claude-opus-5",
+      "thinking": "medium",
+      "when": "需要专业判断但有明确对错，可被下游门禁兜住"
+    },
+    "L2": {
+      "label": "中档",
+      "default_model": "claude-sonnet-5",
+      "thinking": "medium",
+      "when": "规格清晰的整理、归一、比对、汇总"
+    },
+    "L1": {
+      "label": "低档",
+      "default_model": "claude-haiku-4-5-20251001",
+      "thinking": "none",
+      "when": "机械核对、清单填充、区分度对照组"
+    },
+    "L0": {
+      "label": "无模型",
+      "default_model": null,
+      "thinking": null,
+      "when": "确定性脚本，同输入必须同输出"
+    }
+  },
+  "roles": {
+    "gold_curator": {
+      "id": "T10",
+      "name": "Gold 落地",
+      "kind": "human_registration",
+      "scope": "task",
+      "model_tier": "L0",
+      "agent_slot": {
+        "instance_id_pattern": "^A-[0-9]{3,}$",
+        "runner": "human_registration",
+        "fresh_instance_on_retry": false
+      },
+      "required_inputs": [
+        "material_pool",
+        "source_manifest",
+        "occupation_standard"
+      ],
+      "allowed_inputs": [
+        "material_pool",
+        "source_manifest",
+        "occupation_standard"
+      ],
+      "required_outputs": [
+        "gold",
+        "gold_provenance",
+        "production_notes"
+      ],
+      "allowed_outputs": [
+        "gold",
+        "gold_provenance",
+        "production_notes"
+      ],
+      "requires_roles": [],
+      "distinct_from": [],
+      "rework_targets": [],
+      "optional_inputs": [
+        "coverage"
+      ],
+      "completion_criteria": [
+        {"code": "T10.OUTPUTS_PRESENT", "condition": "gold, gold_provenance and production_notes are non-empty"},
+        {"code": "T10.REAL_DELIVERABLE", "condition": "provenance identifies a permitted real deliverable and records every transformation"},
+        {"code": "T10.TECHNICAL_PREFLIGHT", "condition": "format, metadata, malware, path and licence preflight has no failed or not_run result"}
+      ],
+      "failure_routes": [
+        {"reason_code": "T10.INTAKE_INCOMPLETE", "route_to": "gold_curator", "action": "request missing human evidence"},
+        {"reason_code": "T10.PROVENANCE_INVALID", "route_to": "gold_curator", "action": "correct or replace the source declaration"},
+        {"reason_code": "T10.DELIVERABLE_NOT_REAL", "route_to": "stop", "action": "replace the deliverable; generation is not a rework route"},
+        {"reason_code": "T10.PREFLIGHT_FAILED", "route_to": "gold_curator", "action": "repair the named technical defect and rerun preflight"}
+      ],
+      "instructions": [
+        "把选定的真实交付物落成 gold：脱敏、去环境残留、剥离 docProps/ 与 customXml/、统一 zip 时间戳，保持业务本来的格式与专业质量。",
+        "只做脱敏与格式归一，不改业务结论、不补数、不美化；任何实质改动写进 production_notes 并说明理由。",
+        "gold_provenance 必须据实写明真实来源、权利依据、脱敏方法和重构程度；把重构过程隐去是致命项，据实登记反而是通过项。"
+      ]
+    },
+    "task_designer": {
+      "id": "T11",
+      "name": "任务蓝图与输入设计",
+      "kind": "judgment",
+      "scope": "task",
+      "model_tier": "L4",
+      "agent_slot": {
+        "instance_id_pattern": "^A-[0-9]{3,}$",
+        "runner": "agent",
+        "fresh_instance_on_retry": false
+      },
+      "required_inputs": [
+        "coverage",
+        "occupation_standard",
+        "gold",
+        "gold_provenance"
+      ],
+      "allowed_inputs": [
+        "coverage",
+        "occupation_standard",
+        "gold",
+        "gold_provenance"
+      ],
+      "required_outputs": [
+        "task_blueprint",
+        "design_notes",
+        "reference_spec",
+        "lineage_draft"
+      ],
+      "allowed_outputs": [
+        "task_blueprint",
+        "design_notes",
+        "reference_spec",
+        "lineage_draft"
+      ],
+      "requires_roles": [
+        "gold_curator"
+      ],
+      "distinct_from": [
+        "solver"
+      ],
+      "rework_targets": [
+        "gold_curator"
+      ],
+      "optional_inputs": [
+        "material_pool",
+        "source_manifest"
+      ],
+      "completion_criteria": [
+        {"code": "T11.OUTPUTS_PRESENT", "condition": "all four required output categories are non-empty"},
+        {"code": "T11.ISOLATION_SPLIT", "condition": "task_blueprint contains no evaluator-only field and design_notes records reasoning_points"},
+        {"code": "T11.RECONSTRUCTIBLE_SPEC", "condition": "every material gold fact has an input source and lineage edge"}
+      ],
+      "failure_routes": [
+        {"reason_code": "T11.GOLD_SOURCE_GAP", "route_to": "gold_curator", "action": "repair or replace the registered source"},
+        {"reason_code": "T11.INPUT_FACT_GAP", "route_to": "task_designer", "action": "revise reference_spec"},
+        {"reason_code": "T11.SCENARIO_INVALID", "route_to": "task_designer", "action": "redesign the task blueprint"},
+        {"reason_code": "T11.EVALUATOR_LEAK", "route_to": "task_designer", "action": "move answer-bearing content to design_notes"}
+      ],
+      "instructions": [
+        "从真实交付物倒推输入：gold 里出现的每个关键数字都必须在 reference_spec 里有出处，不允许出现输出里有、输入里没有的数。",
+        "在输入里故意留出需要推理才能用对的东西——未报价项、有效期、已停用资产、条款之间的冲突；没有推理点的任务会退化成抄写。",
+        "reference_spec 使用 policy 允许的格式：md 用于政策/规程/说明，xlsx 用于台账/明细，csv/tsv/xml/json 用于结构化数据或系统导出；禁用 PDF。文件名要像真实业务文件，不用工程化命名。",
+        "lineage_draft 逐字段记录输入总体、使用字段、顺序、选择、连接、去重、清洗、计算、格式化到输出结构的完整链路。",
+        "产出分成两份，界线是「Agent 会不会看到」：task_blueprint 只放 prompt 作者可以照抄的东西——sector、occupation、language、task_summary、output_contract、output_shape、file_roles；design_notes 放 evaluator 专用的——reasoning_points、figure_pattern、guards、column_maps、item_codes、版本变更记录。",
+        "reasoning_points 写的是答案本身（哪天截止、几条评论、哪种写法对），它进不了 prompt 作者的视线。把它和蓝图放在一个文件里，泄漏只是迟早的事——这条已经发生过两次。"
+      ]
+    },
+    "prompt_author": {
+      "id": "T12",
+      "name": "Prompt 撰写",
+      "kind": "judgment",
+      "scope": "task",
+      "model_tier": "L2",
+      "agent_slot": {
+        "instance_id_pattern": "^A-[0-9]{3,}$",
+        "runner": "agent",
+        "fresh_instance_on_retry": false
+      },
+      "required_inputs": [
+        "occupation_standard",
+        "task_blueprint",
+        "references"
+      ],
+      "allowed_inputs": [
+        "occupation_standard",
+        "task_blueprint",
+        "references"
+      ],
+      "required_outputs": [
+        "prompt",
+        "output_contract"
+      ],
+      "allowed_outputs": [
+        "prompt",
+        "output_contract"
+      ],
+      "requires_roles": [
+        "task_designer"
+      ],
+      "distinct_from": [
+        "task_designer",
+        "solver",
+        "verifier",
+        "rubric"
+      ],
+      "rework_targets": [
+        "task_designer"
+      ],
+      "optional_inputs": [
+        "coverage"
+      ],
+      "completion_criteria": [
+        {"code": "T12.OUTPUTS_PRESENT", "condition": "prompt and output_contract are non-empty"},
+        {"code": "T12.SELF_CONTAINED_DRAFT", "condition": "the prompt names inputs, outputs, units, exceptions and execution limits without placeholders"},
+        {"code": "T12.NO_GOLD_VISIBILITY", "condition": "the run packet contains no gold, design_notes, production_notes, rubric or expected_values"}
+      ],
+      "failure_routes": [
+        {"reason_code": "T12.PROMPT_INCOMPLETE", "route_to": "prompt_author", "action": "revise the prompt"},
+        {"reason_code": "T12.BLUEPRINT_GAP", "route_to": "task_designer", "action": "supply the missing contract fact"},
+        {"reason_code": "T12.PROMPT_LEAK", "route_to": "prompt_author", "action": "remove answer-bearing text and create a fresh downstream wave"}
+      ],
+      "instructions": [
+        "写足需求文档 §3 的九项：职业角色、委托方与业务背景、逐个 basename 的用途与关系、要做的分析与判断、公式口径单位币种期间日期格式与异常处理、每个输出文件的准确文件名与内部结构、质量与跨文件一致性要求、缺失冲突时的处理、以及不得联网不得补造事实的执行边界。",
+        "不看 gold、design_notes 或 production_notes；输出契约与口径只从 task_blueprint、occupation_standard 和 references 取得。",
+        "中文职业场景写中文口语，不写英译中；任何场景都不写规格书体，背景交代的字数应多于指令，长度对齐官方样例中位 2000 字符左右。",
+        "不得保留 not specified、占位符、待补字段或依赖口头解释的要求。",
+        "本角色必须与 T11 用不同的 agent 和上下文：prompt 是否自足，恰恰是设计者判断不了的——他知道自己想放进文件里的东西，看不见没放进去的那部分。场景意图由 task_blueprint 传递，不靠同一个上下文的记忆。"
+      ]
+    },
+    "solver": {
+      "id": "T13",
+      "name": "冷上下文独立解题（强档）",
+      "kind": "independent_judgment",
+      "scope": "task",
+      "model_tier": "L4",
+      "agent_slot": {
+        "instance_id_pattern": "^A-[0-9]{3,}$",
+        "runner": "agent",
+        "fresh_instance_on_retry": true
+      },
+      "required_inputs": [
+        "references",
+        "prompt"
+      ],
+      "allowed_inputs": [
+        "references",
+        "prompt"
+      ],
+      "required_outputs": [
+        "solver_deliverables",
+        "solver_report"
+      ],
+      "allowed_outputs": [
+        "solver_deliverables",
+        "solver_report"
+      ],
+      "requires_roles": [
+        "prompt_author"
+      ],
+      "distinct_from": [
+        "task_designer",
+        "prompt_author",
+        "gold_curator",
+        "verifier",
+        "rubric"
+      ],
+      "rework_targets": [
+        "prompt_author",
+        "task_designer"
+      ],
+      "optional_inputs": [],
+      "completion_criteria": [
+        {"code": "T13.OUTPUTS_PRESENT", "condition": "solver_deliverables and solver_report are non-empty"},
+        {"code": "T13.G1_PASS", "condition": "prompt_self_contained, solvable and task_multistep are true; separating_power is sufficient; no prompt leak is reported"},
+        {"code": "T13.COLD_CONTEXT", "condition": "the A-xxx instance and context have not seen gold, rubric, lineage or an earlier answer"}
+      ],
+      "failure_routes": [
+        {"reason_code": "T13.MISSING_PROMPT_FACT", "route_to": "prompt_author", "action": "repair prompt and start a fresh T13 instance"},
+        {"reason_code": "T13.SCENARIO_UNSOLVABLE", "route_to": "task_designer", "action": "repair reference design and rebuild downstream artifacts"},
+        {"reason_code": "T13.PROMPT_LEAK", "route_to": "prompt_author", "action": "remove leak and start a fresh T13 instance"},
+        {"reason_code": "T13.LOW_SEPARATING_POWER", "route_to": "task_designer", "action": "strengthen reasoning requirements"}
+      ],
+      "instructions": [
+        "只用 prompt 和 references 完成任务，不接触 gold、rubric、lineage 或任何制作记录。",
+        "在 solver_report/report.json 记录 prompt_self_contained、solvable、task_multistep、separating_power、difficulty_evidence、blocking_ambiguities。",
+        "缺任何完成任务所必需的事实，一律判为 prompt 缺陷并写进 blocking_ambiguities，不得自行补造。",
+        "若不经推理就能从 prompt 直接读出结论，判为 prompt 泄漏并明确报出。",
+        "区分度证据写进本报告：哪些步骤要跨文件推理才做得出、一个只会照抄的执行者会在哪一步掉队。不再单跑一个弱档 solver——它测的是模型档位差，不是任务本身。"
+      ]
+    },
+    "verifier": {
+      "id": "T14",
+      "name": "冷上下文复算与反向验证",
+      "kind": "independent_judgment",
+      "scope": "task",
+      "model_tier": "L3",
+      "agent_slot": {
+        "instance_id_pattern": "^A-[0-9]{3,}$",
+        "runner": "agent",
+        "fresh_instance_on_retry": true
+      },
+      "required_inputs": [
+        "occupation_standard",
+        "references",
+        "prompt",
+        "gold",
+        "lineage_draft"
+      ],
+      "allowed_inputs": [
+        "occupation_standard",
+        "references",
+        "prompt",
+        "gold",
+        "lineage_draft"
+      ],
+      "required_outputs": [
+        "expected_values",
+        "verifier_report"
+      ],
+      "allowed_outputs": [
+        "expected_values",
+        "verifier_report"
+      ],
+      "requires_roles": [
+        "gold_curator",
+        "prompt_author"
+      ],
+      "distinct_from": [
+        "task_designer",
+        "prompt_author",
+        "gold_curator",
+        "solver",
+        "rubric"
+      ],
+      "rework_targets": [
+        "task_designer",
+        "gold_curator"
+      ],
+      "optional_inputs": [],
+      "completion_criteria": [
+        {"code": "T14.OUTPUTS_PRESENT", "condition": "expected_values and verifier_report are non-empty"},
+        {"code": "T14.G3_PASS", "condition": "recompute_passed and lineage_valid are true, with no mismatch or demand lacking a gold landing place"},
+        {"code": "T14.NO_DERIVATION_VISIBILITY", "condition": "the run packet excludes design_notes, production_notes and prior verifier work"},
+        {"code": "T14.INDEPENDENT_FIRST_PASS", "condition": "the verifier completes its full consistency and lineage self-check before handoff; unresolved questions are recorded as findings rather than deferred to downstream agents"}
+      ],
+      "failure_routes": [
+        {"reason_code": "T14.GOLD_MISMATCH", "route_to": "gold_curator", "action": "verify the registered deliverable or replace the task"},
+        {"reason_code": "T14.REFERENCE_FACT_GAP", "route_to": "task_designer", "action": "repair reference_spec and rebuild downstream artifacts"},
+        {"reason_code": "T14.LINEAGE_INVALID", "route_to": "task_designer", "action": "repair lineage and affected inputs"},
+        {"reason_code": "T14.GOLD_LANDING_GAP", "route_to": "task_designer", "action": "remove or redesign the unsupported prompt demand"}
+      ],
+      "instructions": [
+        "只读 references 与 prompt 独立复算 gold 里的每一个关键数字，这同时是 §1.1 要求的合成输入反向验证。",
+        "不读 production_notes，不读制作者的推导；照抄推导的复算没有证据价值。",
+        "逐条核对 lineage_draft 声称的每条边是否能在 prompt、reference、gold 的可观察内容里落实。",
+        "把独立算出的数写进 expected_values（rubric 的数字只能来自这里，不能来自 gold），结论写进 verifier_report/report.json。",
+        "§5 的可重建性是双向的。方向一——gold 的每个事实能否由 references 推出——泄漏审计会查。方向二——prompt 要求的每个事实，在 gold 里有没有落点——没有任何审计会查，只有你会。",
+        "在 verifier_report 里给出 demands_without_landing_place：prompt 明确要求、而 gold 里没有承载位置的每一项。这类缺口不是少给分，是把分给反了：正确执行者写出 gold 没有的句子，压根没想到的人反而与 gold 一致。"
+      ]
+    },
+    "rubric": {
+      "id": "T15",
+      "name": "Rubric 设计",
+      "kind": "judgment",
+      "scope": "task",
+      "model_tier": "L3",
+      "agent_slot": {
+        "instance_id_pattern": "^A-[0-9]{3,}$",
+        "runner": "agent",
+        "fresh_instance_on_retry": false
+      },
+      "required_inputs": [
+        "occupation_standard",
+        "references",
+        "prompt",
+        "gold",
+        "expected_values",
+        "policy"
+      ],
+      "allowed_inputs": [
+        "expected_values",
+        "gold",
+        "occupation_standard",
+        "policy",
+        "prompt",
+        "references"
+      ],
+      "required_outputs": [
+        "rubric"
+      ],
+      "allowed_outputs": [
+        "rubric"
+      ],
+      "requires_roles": [
+        "gold_curator",
+        "solver",
+        "verifier"
+      ],
+      "distinct_from": [
+        "task_designer",
+        "prompt_author",
+        "gold_curator",
+        "solver",
+        "verifier"
+      ],
+      "rework_targets": [
+        "prompt_author"
+      ],
+      "optional_inputs": [
+        "design_notes"
+      ],
+      "completion_criteria": [
+        {"code": "T15.OUTPUT_PRESENT", "condition": "rubric is a non-empty array"},
+        {"code": "T15.G4_PASS", "condition": "item count, score total, granularity, required value, ids, foreseeability and judgeability satisfy policy"},
+        {"code": "T15.EXPECTED_VALUE_SOURCE", "condition": "every numeric criterion is sourced from expected_values rather than copied from gold"}
+      ],
+      "failure_routes": [
+        {"reason_code": "T15.RUBRIC_STRUCTURE", "route_to": "rubric", "action": "repair item structure and rerun G4"},
+        {"reason_code": "T15.HIDDEN_REQUIREMENT", "route_to": "prompt_author", "action": "make the requirement foreseeable, then start a fresh downstream wave"},
+        {"reason_code": "T15.NUMERIC_SOURCE_INVALID", "route_to": "verifier", "action": "repair expected_values before regenerating affected items"}
+      ],
+      "instructions": [
+        "唯一判断标准：一位干这行的人会不会真的拿这条去评价这份交付物；不会就不写。",
+        "条目数按 policy.rubric.item_count_distribution 从 N(30,10) 采样，四舍五入为整数并下截断至 25；总分按 policy.rubric.total_score（默认 100）。",
+        "rubric 条目的 required 字段缺省按 policy.rubric.required_field_default 写入 true；显式值按硬性验收门槛语义允许 true 或 false，不得写成 null。",
+        "涉及数字的条目一律用 expected_values，禁止从 gold 抄；不写交付物存在性条目，不写页数字数章节数等形式指标。",
+        "可预见性是硬约束：每条都要能在 prompt 或参考文件（含政策规程类）中定位依据，定位不到就把要求写进 prompt 或删条目。",
+        "程序化判定逻辑只写进 rubric_checks（内部，不进交付），rubric 只带标准格式的八个字段加 verification/score_levels/check。",
+        "不要让 gold 拿满分；覆盖负面约束但一般职业用正分表述，负分只用于做错有明确损害的职业。"
+      ]
+    }
+  },
+  "requires_roles_note": "requires_roles 只在同一个 workspace 内生效。批次层角色（B01/B02/B03）在批次 workspace 运行，其产物以 intake artifact 进入任务 workspace，因此任务层角色不得把批次层角色写进 requires_roles——依赖由 required_inputs 承担。",
+  "dropped_in_v3": {
+    "coverage_planner": "一张配额表，人维护",
+    "source_curator": "找真实交付物是人的活；登记是表单，由 gold_curator 的 provenance 守卫兜住",
+    "occupation_profiler": "44 份可复用文档，不是角色；仍作为 occupation_standard 输入存在",
+    "solver_weak": "测的是模型档位差，不是甲方 agent 会不会做；难度证据并入 solver 报告",
+    "audit": "单任务无可比对象；泄漏/隐私/密钥是脚本，换皮查重是 N 大之后的批次脚本",
+    "professional_review": "三层复核是人的流程，证据是 reviewers.json 与 human_review_record.json",
+    "release": "纯脚本：三组 list 对齐 + 下载哈希"
+  }
+}
