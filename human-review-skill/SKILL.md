@@ -1,13 +1,13 @@
 ---
-name: "gdpval-pipeline"
-description: "Build, inspect, validate, and release GDPval task packages using the repository's evidence-bound v4 pipeline. Use when a task involves GDPval roles, rubric contracts, real deliverables, strict validation, human-review evidence, or deterministic packaging."
+name: "human-review-gdpval"
+description: "Perform staged human review of GDPval task packages, including general QA, occupational expert review, final review, remediation confirmation, and current-version hash sign-off. Use when a task requires reviewer workbooks, substantive findings, review timing, signatures, or evidence-bound release checks."
 metadata:
-  short-description: "Operate the GDPval evidence pipeline"
+  short-description: "Run staged human review for GDPval"
 ---
 
-# GDPval Pipeline
+# Human Review
 
-Use this skill for GDPval task-package work. Treat the repository's
+Use this skill for GDPval human-review work. Treat the repository's
 `产线规范/agent_roles.json` and `产线规范/policy.json` as the machine-readable
 source of truth; do not invent a parallel policy in prompts or scripts.
 

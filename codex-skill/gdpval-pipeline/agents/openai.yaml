@@ -1,6 +1,0 @@
-interface:
-  display_name: "GDPval Pipeline"
-  short_description: "Operate the GDPval evidence pipeline"
-  default_prompt: "Use $gdpval-pipeline to inspect or run this GDPval task-package pipeline."
-policy:
-  allow_implicit_invocation: true

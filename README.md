@@ -9,6 +9,7 @@ real deliverables, reviewer records, workbench state, or generated archives.
 
 - `build/pipeline/`: orchestrator, planner, assembler, review-kit builder, validator and tests
 - `产线规范/`: role contracts, policy, release invariants and Mermaid flowchart
+- `human-review-skill/`: separately callable staged human-review skill package
 
 The runtime expects evaluator-only task data under `build/tasks/` and writes
 workbench, staging and delivery data outside the source checkout or in paths
