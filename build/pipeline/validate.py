@@ -34,6 +34,10 @@ import checks as CH                                               # noqa: E402
 import recompute as RC                                            # noqa: E402
 import spec_checks as SC                                          # noqa: E402
 import taskdata as TD                                             # noqa: E402
+from validation_registry import (                                 # noqa: E402
+    TEMPLATE_GUARD_ROLES, VALIDATION_REGISTRY_VERSION,
+    expected_validation_checks, validation_registry_digest,
+)
 
 # The readers live in checks.py so the checker and the validator read a file the
 # same way. Two implementations of "the text of this document" is two answers to
@@ -616,8 +620,7 @@ def _tokens(text):
             if w not in STOPWORDS}
 
 
-GUARD_ROLES = ("policy", "issue_log", "profile", "quotations",
-               "narrative_deliverable")
+GUARD_ROLES = TEMPLATE_GUARD_ROLES
 GUARD_SOURCE_ROLES = GUARD_ROLES[:-1]
 
 
@@ -1056,8 +1059,23 @@ def render(r, outdir):
 
 
 # ==========================================================================
-def write_validation_status(task_id):
+def _assert_validation_registry(task_meta):
+    names = [item.get("check") for item in results]
+    duplicates = sorted({name for name in names if names.count(name) > 1})
+    expected = expected_validation_checks(task_meta)
+    missing = sorted(expected - set(names))
+    unexpected = sorted(set(names) - expected)
+    if any(not name for name in names) or duplicates or missing or unexpected:
+        raise RuntimeError(
+            "fixed validation registry mismatch: missing=%s unexpected=%s "
+            "duplicates=%s" % (missing, unexpected, duplicates))
+    return expected
+
+
+def write_validation_status(task_id, final=False):
     """Replace one task row without discarding other tasks' validation."""
+    expected = (_assert_validation_registry(TASK.meta) if final
+                 else expected_validation_checks(TASK.meta))
     path = P("manifests", "validation_status.jsonl")
     existing = []
     if os.path.isfile(path):
@@ -1079,9 +1097,8 @@ def write_validation_status(task_id):
                       "not by this script"),
         "validator_sha256": sha256(os.path.abspath(__file__)),
         "validation_run_nonce": os.environ.get("GDPVAL_VALIDATION_NONCE"),
-        "registry_sha256": hashlib.sha256(json.dumps(
-            sorted(item["check"] for item in results),
-            separators=(",", ":")).encode("utf-8")).hexdigest(),
+        "registry_version": VALIDATION_REGISTRY_VERSION,
+        "registry_sha256": validation_registry_digest(expected),
         "checks": results,
     })
     with open(path, "w", encoding="utf-8") as fh:
@@ -1092,6 +1109,13 @@ def write_validation_status(task_id):
 # ==========================================================================
 def main():
     global TASK
+    if os.environ.get("GDPVAL_VALIDATOR_ORCHESTRATED") == "1":
+        nonce = os.environ.get("GDPVAL_VALIDATION_NONCE")
+        try:
+            UUID(str(nonce))
+        except (TypeError, ValueError, AttributeError):
+            raise SystemExit(
+                "orchestrated validation requires a fresh UUID nonce")
     r = check_delivery()
     tid = r["task_id"]
     TASK = TD.TaskData(tid)
@@ -1684,7 +1708,7 @@ def main():
                            "which is documented in its header"
                            % (len(tree2), n_hashed)) if not junk2 and not uncov else \
                           "junk=%s uncovered=%s" % (junk2, uncov)
-    write_validation_status(tid)
+    write_validation_status(tid, final=True)
     BD.write_sha256_inventory()
     BD.write_checksums_final()
 
@@ -1704,8 +1728,12 @@ def main():
     for i in rubric_results:
         print("   [%-6s] %3d %s" % (i["status"], i["score"], i["code"]))
     print("=" * 74)
-    return 0 if (counts.get("failed", 0) == 0 and
-                 counts.get("not_run", 0) == 0 and gates_ok) else 1
+    returncode = 0 if (counts.get("failed", 0) == 0 and
+                       counts.get("not_run", 0) == 0 and gates_ok) else 1
+    if os.environ.get("GDPVAL_VALIDATOR_ORCHESTRATED") == "1":
+        print("GDPVAL_VALIDATION_COMPLETE nonce=%s returncode=%s" %
+              (os.environ["GDPVAL_VALIDATION_NONCE"], returncode), flush=True)
+    return returncode
 
 
 if __name__ == "__main__":

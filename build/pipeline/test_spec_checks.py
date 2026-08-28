@@ -44,17 +44,31 @@ class ProjectUsePermissionTest(unittest.TestCase):
         self.assertEqual(result[1], "failed")
 
     def test_client_confirmed_internal_use_passes_with_restriction(self):
-        result = checks.license_permits_delivery({}, {
-            "defaults": {
-                "license": "Copyright; external redistribution is prohibited",
-                "usage_scope": "Client-controlled internal GDPval use",
-                "project_use_authorization": {
-                    "status": "client_confirmed_internal_use",
-                    "confirmed_by": "王子英",
-                    "role": "甲方项目Owner",
+        with tempfile.TemporaryDirectory() as task_root:
+            evidence = os.path.join(task_root, "owner-authorization.md")
+            with open(evidence, "wb") as fh:
+                fh.write(b"client authorization")
+            result = checks.license_permits_delivery({"task_id": "task-a"}, {
+                "defaults": {
+                    "license": "Copyright; external redistribution is prohibited",
+                    "usage_scope": "Client-controlled internal GDPval use",
+                    "project_use_authorization": {
+                        "status": "client_confirmed_internal_use",
+                        "confirmed_by": "Client Owner", "role": "Client project owner",
+                        "confirmed_at": "2026-08-24T10:26:00+08:00",
+                        "task_id": "task-a", "scope": "single_task_internal_gdpval",
+                        "evidence_file": "owner-authorization.md",
+                        "evidence_sha256": hashlib.sha256(
+                            b"client authorization").hexdigest(),
+                        "usage_boundaries": {
+                            "public_release": "not_authorized",
+                            "internal_use": "authorized",
+                            "third_party_redistribution": "not_authorized",
+                            "sublicensing": "not_authorized",
+                        },
+                    },
                 },
-            },
-        }, {})
+            }, {}, task_root=task_root)
 
         self.assertEqual(result[1], "passed")
         self.assertIn("对外再分发仍受限", result[2])
@@ -77,10 +91,33 @@ class ProjectUsePermissionTest(unittest.TestCase):
             "defaults": {
                 "license": "U.S. Government work; 17 U.S.C. 105",
                 "usage_scope": "Project use with attribution",
+                "usage_boundaries": {
+                    "public_release": "authorized",
+                    "internal_use": "authorized",
+                    "third_party_redistribution": "authorized",
+                    "sublicensing": "authorized",
+                },
             },
         }, {})
 
         self.assertEqual(result[1], "passed")
+
+    def test_declared_internal_use_must_be_authorized(self):
+        result = checks.license_permits_delivery({"task_id": "task-a"}, {
+            "defaults": {
+                "license": "Public source",
+                "usage_scope": "No project use granted",
+                "usage_boundaries": {
+                    "public_release": "authorized",
+                    "internal_use": "not_authorized",
+                    "third_party_redistribution": "authorized",
+                    "sublicensing": "authorized",
+                },
+            },
+        }, {})
+
+        self.assertEqual(result[1], "failed")
+        self.assertIn("internal_use", result[2])
 
     def test_provisional_marking_does_not_establish_gold_shortfall(self):
         result = checks.gold_not_full_marks({
@@ -95,7 +132,7 @@ class ProjectUsePermissionTest(unittest.TestCase):
     def test_full_mark_task_exception_is_evidence_bound_and_scoped(self):
         task_id = "d6a10b76-e511-518c-88cb-6cef2e718fbe"
         marking = {
-            "marked_by": "王佳宁",
+            "marked_by": "Occupational Reviewer",
             "marked_on": "2026-08-24T01:16:42+08:00",
             "returned_form_total": 100,
             "items": [{"code": "R01", "shortfall": None}],
@@ -109,8 +146,8 @@ class ProjectUsePermissionTest(unittest.TestCase):
                 "status": "approved_task_exception",
                 "check": "gold_not_full_marks",
                 "task_id": task_id,
-                "approved_by": "王子英",
-                "approved_role": "甲方项目 Owner",
+                "approved_by": "Client Owner",
+                "approved_role": "Client project owner",
                 "approved_at": "2020-08-24T11:00+08:00",
                 "accepted_score": 100,
                 "global_policy_unchanged": True,

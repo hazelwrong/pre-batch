@@ -21,11 +21,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import taskdata as TD                                             # noqa: E402
 
 HUMAN_FILES = ("coverage.json", "provenance.json", "source_inventory.json",
-               "gold_revision.json", "gold_marking.json", "reviewers.json")
+               "gold_revision.json", "gold_marking.json", "expert_profiles.json")
 
 PROVENANCE_ROLES = ("reference", "deliverable", "index", "validation_evidence")
 PROVENANCE_DEFAULTS = ("rights_holder", "version", "license", "usage_scope",
-                       "contains_pii", "deidentification_note", "acquisition_date")
+                       "contains_pii", "deidentification_note", "acquisition_date",
+                       "usage_boundaries")
 REVISION_FIELDS = ("source_material", "business_context", "deidentification", "scope")
 LAYERS = ("general_review", "occupational_expert_review", "final_review")
 
@@ -76,6 +77,33 @@ def check_source_inventory(data, problems):
         if row.get("adopted") is False and not row.get("rejection_reason"):
             _fail(problems, "source_inventory.json",
                   "第 %d 条未采用但没写 rejection_reason" % (n + 1))
+        if row.get("adopted") is not False:
+            for key in ("source_url", "license"):
+                if not str(row.get(key) or "").strip():
+                    _fail(problems, "source_inventory.json",
+                          "第 %d 条已采用来源缺 %s" % (n + 1, key))
+
+
+def check_expert_profiles(data, problems):
+    rules = TD.policy().get("human_review") or {}
+    count = int(rules.get("expert_profiles_required_per_task", 3))
+    fields = rules.get("expert_profile_required_fields") or []
+    if not isinstance(data, list) or len(data) != count:
+        _fail(problems, "expert_profiles.json", "必须恰好有 %d 条画像" % count)
+        return
+    layers = set()
+    mapping = {"通用审查": "general_review", "职业专家": "occupational_expert_review",
+               "职业专家审查": "occupational_expert_review", "终审": "final_review"}
+    for index, profile in enumerate(data, start=1):
+        for field in fields:
+            if not profile.get(field):
+                _fail(problems, "expert_profiles.json",
+                      "第 %d 条缺 %s" % (index, field))
+        layer = profile.get("review_layer") or profile.get("expert_role")
+        layers.add(mapping.get(layer, layer))
+    expected = {"general_review", "occupational_expert_review", "final_review"}
+    if layers != expected:
+        _fail(problems, "expert_profiles.json", "三条画像必须分别覆盖三层审核")
 
 
 def check_gold_revision(data, problems):
@@ -136,13 +164,6 @@ def check_reviewers(data, problems):
             _fail(problems, "reviewers.json", "职业专家缺 rubric_version_reviewed")
         if not expert.get("items_reviewed"):
             _fail(problems, "reviewers.json", "职业专家缺 items_reviewed")
-        rounds = expert.get("adoption_rounds") or []
-        summary = expert.get("adoption_summary") or {}
-        objected = any(r.get("objected") or r.get("objection") for r in rounds) or \
-            int(summary.get("rounds_with_substantive_objection", 0) or 0) > 0
-        if not objected:
-            _fail(problems, "reviewers.json",
-                  "专家没有任何驳回记录。全票通过的复核记录本身就是可疑信号")
         if expert.get("credential_status") is None:
             _fail(problems, "reviewers.json", "职业专家缺 credential_status")
 
@@ -169,7 +190,7 @@ def check(task_id, tasks_root=None):
         "source_inventory.json": lambda d: check_source_inventory(d, problems),
         "gold_revision.json": lambda d: check_gold_revision(d, problems),
         "gold_marking.json": lambda d: check_marking(d, rubric, codes, problems),
-        "reviewers.json": lambda d: check_reviewers(d, problems),
+        "expert_profiles.json": lambda d: check_expert_profiles(d, problems),
     }
     for name in HUMAN_FILES:
         data = _read(root, name)
@@ -216,11 +237,25 @@ def write_templates(task_id, tasks_root=None):
             "defaults": {"rights_holder": "", "version": "v1", "license": "",
                          "usage_scope": "GDPval task environment and evaluation data",
                          "contains_pii": False, "deidentification_note": "",
-                         "acquisition_date": ""},
+                         "acquisition_date": "",
+                         "usage_boundaries": {
+                             "public_release": "not_authorized",
+                             "internal_use": "authorized_for_client_controlled_gdpval",
+                             "third_party_redistribution": "not_authorized",
+                             "sublicensing": "not_authorized"},
+                         "project_use_authorization": {
+                             "status": "", "confirmed_by": "", "role": "",
+                             "confirmed_at": "", "task_id": task_id, "scope": "",
+                             "evidence_file": "", "evidence_sha256": "",
+                             "usage_boundaries": {
+                                 "public_release": "not_authorized",
+                                 "internal_use": "authorized_for_client_controlled_gdpval",
+                                 "third_party_redistribution": "not_authorized",
+                                 "sublicensing": "not_authorized"}}},
             "roles": {
                 "reference": {"source_type": "supplier_work_record",
                               "production_method": "", "drafted_by": ""},
-                "deliverable": {"source_type": "supplier_deliverable",
+                "deliverable": {"source_type": "real_input_and_real_deliverable",
                                 "production_method": "", "drafted_by": "",
                                 "revised_and_adopted_by": "",
                                 "revision_evidence": "@gold_revision"},
@@ -232,7 +267,8 @@ def write_templates(task_id, tasks_root=None):
                                         "drafted_by": ""}}},
         "source_inventory.json": [
             {"source_id": "", "source_type": "", "description": "",
-             "adopted": True, "rejection_reason": None, "license": ""}],
+             "source_url": "", "adopted": True,
+             "rejection_reason": None, "license": ""}],
         "gold_revision.json": {
             "date": "",
             "revision_record": {"source_material": "", "business_context": "",
@@ -244,24 +280,16 @@ def write_templates(task_id, tasks_root=None):
             "method": "",
             "items": [{"code": "", "score": 0, "awarded": 0, "evidence": "",
                        "shortfall": None}]},
-        "reviewers.json": {
-            "_superseded_reviewers": [],
-            "_independence_rationale":
-                "supplier-recorded review; not represented as independent "
-                "third-party certification",
-            "general_review": [{"reviewer": "", "title": "", "date": "",
-                                "findings": ""}],
-            "occupational_expert_review": [{
-                "reviewer": "", "title": "", "date": "", "findings": "",
-                "rubric_version_reviewed": "", "items_reviewed": [],
-                "credential_status": "not_independently_verified",
-                "credential_evidence": "not included in delivery package",
-                "remediated": True, "remediation": "",
-                "adoption_rounds": [{"round": 1, "date": "", "rubric_version": "",
-                                     "adopted": [], "objected": [],
-                                     "objection": ""}]}],
-            "final_review": [{"reviewer": "", "title": "", "date": "",
-                              "findings": ""}]},
+        "expert_profiles.json": [{
+            "expert_id": "E%02d" % index, "alias": "", "expert_role": role,
+            "review_layer": layer, "required_industry": "",
+            "required_occupation": "", "review_scope": "",
+            "expert_profile": "", "strengths": [],
+            "first_thought": "",
+        } for index, (role, layer) in enumerate((
+            ("通用审查", "general_review"),
+            ("职业专家审查", "occupational_expert_review"),
+            ("终审", "final_review")), start=1)],
     }
     written = []
     for name, blank in blanks.items():

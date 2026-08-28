@@ -25,6 +25,7 @@ import zipfile
 from datetime import datetime
 
 import officestrip
+from rights_policy import evaluate_usage_rights
 
 OFFICE_SUFFIXES = (".docx", ".xlsx", ".pptx", ".xlsm", ".pdf")
 # §1.3: names like a real business file. `store_profile.xlsx` is the tell of a
@@ -89,7 +90,7 @@ def office_metadata_stripped(record, root, **_):
             if not offenders else "residual metadata parts: %s" % offenders)
 
 
-def license_permits_delivery(record, provenance, policy, **_):
+def license_permits_delivery(record, provenance, policy, task_root=None, **_):
     """§12 and the requirement document: every item must carry a verifiable
     source *and* permission to use it for this project.
 
@@ -106,11 +107,6 @@ def license_permits_delivery(record, provenance, policy, **_):
     blocks += [("files." + k, v) for k, v in (provenance.get("files") or {}).items()]
     UNRESOLVED = ("pending", "未确认", "待确认", "未发现",
                   "not identified", "unclear", "to be confirmed", "阻塞")
-    REDISTRIBUTION_RESTRICTED = (
-        "no open redistribution", "no public redistribution",
-        "external redistribution", "public redistribution",
-        "third-party redistribution", "不允许对外再分发", "禁止对外再分发",
-    )
     flagged = []
     for where, block in blocks:
         text = " ".join(str(block.get(k) or "") for k in
@@ -118,24 +114,10 @@ def license_permits_delivery(record, provenance, policy, **_):
         hit = next((t for t in UNRESOLVED if t.lower() in text.lower()), None)
         if hit:
             flagged.append("%s（%r）" % (where, hit))
-    defaults = provenance.get("defaults") or {}
-    authorization = (provenance.get("project_use_authorization") or
-                     defaults.get("project_use_authorization") or {})
-    authorization_status = authorization.get("status")
-    accepted_authorizations = {
-        "client_confirmed_internal_use",
-        "rights_holder_authorized",
-        "licensed_project_use",
-    }
-    rights_text = " ".join(
-        str(block.get(k) or "")
-        for _where, block in blocks
-        for k in ("license", "usage_scope", "rights_note", "license_note")
-    )
-    restricted = any(token.lower() in rights_text.lower()
-                     for token in REDISTRIBUTION_RESTRICTED)
-    if restricted and authorization_status not in accepted_authorizations:
-        flagged.append("project_use_authorization（再分发受限但未提供项目内使用授权）")
+    rights = evaluate_usage_rights(
+        provenance, record.get("task_id"), task_root)
+    restricted = rights["restricted"]
+    flagged.extend(rights["errors"])
     if not flagged:
         if restricted:
             return ("license_permits_delivery", "passed",
@@ -302,8 +284,6 @@ def _valid_task_exception(exception, record, marking, task_root):
         "status": "approved_task_exception",
         "check": "gold_not_full_marks",
         "task_id": task_id,
-        "approved_by": "王子英",
-        "approved_role": "甲方项目 Owner",
         "global_policy_unchanged": True,
         "scope": "single_task_only",
     }
@@ -311,6 +291,11 @@ def _valid_task_exception(exception, record, marking, task_root):
                   if exception.get(key) != expected]
     if mismatches:
         return False, "task exception fields do not match: %s" % ", ".join(mismatches)
+    identity_missing = [key for key in ("approved_by", "approved_role")
+                        if not str(exception.get(key) or "").strip()]
+    if identity_missing:
+        return False, "task exception approval identity is missing: %s" % \
+            ", ".join(identity_missing)
     try:
         approved_at = datetime.fromisoformat(str(exception.get("approved_at")))
     except (TypeError, ValueError):

@@ -2,6 +2,10 @@
 
 这份契约定义任务包交给人工审查流程时，上游必须提供的材料。它适用于通用审查、职业专家审查、终审、整改后复核和整改后哈希补签。
 
+机器执行以同目录的 `review-input.schema.json` 和运行时生成的
+`review_input_manifest.json` 为准。Markdown 用于解释；缺少机器契约必填字段时，
+pipeline 必须在生成审核包之前失败，不能把证据缺口留给专家发现。
+
 ## 1. 两种合法输入形态
 
 优先使用 pipeline 原生任务目录；已有历史任务包可以使用复核包目录。调用 skill 时先识别形态，再把它们归一到同一份当前版本清单。
@@ -13,7 +17,11 @@ tasks/<task_id>/
 ├── task_meta.json
 ├── prompt.md
 ├── rubric.json
-└── rubric_pretty.txt
+├── rubric_pretty.txt
+├── provenance.json
+├── gold_provenance.json
+├── source_inventory.json
+└── expert_profiles.json
 
 delivery/<task_id>/
 ├── tasks.jsonl
@@ -23,7 +31,7 @@ delivery/<task_id>/
 └── validation_evidence/
 ```
 
-`task_meta.json` 至少包含 `task_id`、`sector`、`occupation`、`language`、`rubric_version` 和 `item_codes`。`rubric.json` 是结构化 Rubric，`prompt.md` 是当前题面，`rubric_pretty.txt` 是供审查人阅读的 Rubric 文本。`delivery/<task_id>/tasks.jsonl` 必须能唯一定位该任务，并与上述四份当前版本文件一致。
+`task_meta.json` 至少包含 `task_id`、任务名称、`sector`、`occupation`、`language`、当前版本、`rubric_version` 和 `item_codes`。`rubric.json` 是结构化 Rubric，`prompt.md` 是当前题面，`rubric_pretty.txt` 是供审查人阅读的 Rubric 文本。`tasks.jsonl` 必须能唯一定位该任务，并与当前 prompt、Rubric、Gold、reference 和 deliverable 文件一致。
 
 ### B. 历史/项目方复核包
 
@@ -56,16 +64,19 @@ delivery/<task_id>/
 ### 任务和版本
 
 - 唯一 `task_id`、任务包名称、行业、职业、语言。
-- 当前 prompt、Rubric 版本和 Gold 文件的路径。
+- 当前 prompt、Rubric、Gold、reference、交付包及来源证据的路径。
 - 当前版本的文件清单；对每个文件记录相对路径、字节数和 SHA-256。
-- 如果存在候选 ZIP，记录 ZIP 路径、SHA-256，并说明它是正式发布包还是受限内部候选包。
+- `basis_digest`、候选 ZIP 路径和 SHA-256、首审核包 SHA-256；明确它是正式发布包还是受限内部候选包。
+- 每层回执必须绑定其收到的 `review_basis_digest`。终审包另记录 post-remediation basis、稳定业务 payload digest 和冻结时间。
 
 ### 真实材料与权限
 
 - `material_pool` 中的真实交付物、配套输入和 reference。
-- 每个真实交付物的来源、权利主体、许可依据、获取日期和脱敏记录。
-- 交付物是否逐字节保留；任何重构、脱敏或格式变换都要单独说明。
-- 外部再分发、公开发布、内部使用和转授权的边界。
+- 每个真实交付物在 `gold_provenance.real_deliverable_files` 中逐文件登记 `path`（同名文件时必填）、`source_url`、`source_sha256`、`source_type`、`rights_holder`、`license` 和 `acquired_at`；pipeline 复算当前文件 SHA-256。
+- `deliverable_files` 必须逐字节等于真实来源，不允许重构、脱敏、转格式或清除元数据。经过脱敏重构的 reference 记录 `source_type=desensitization` 和 transformation record，不能把它冒充成原文件。
+- 已采用的 reference 不得标为 `synthetic`；只要发生过脱敏或重构，就必须同时使用 `source_type=desensitization` 并填写 `transformation_record`。
+- 公开发布、甲方内部使用、第三方再分发和转授权分别记录，不用一个模糊的 `allowed` 概括四种范围。
+- 受限使用授权必须记录真实决策人、实际角色、带时区决策时间、task ID、授权范围、证据文件与 SHA-256；任务级授权和例外不得扩展成全局 policy。
 
 ### 职业标准与专家画像
 
@@ -77,19 +88,25 @@ delivery/<task_id>/
   "expert_id": "E01",
   "alias": "规划用姓名",
   "expert_role": "通用审查",
+  "review_layer": "general_review",
+  "required_industry": "需要的行业背景",
+  "required_occupation": "需要的职业背景",
+  "review_scope": "只审核哪些内容",
   "expert_profile": "典型岗位、经验和审查视角",
   "strengths": ["跨文件一致性", "证据定位"],
   "first_thought": "看到材料后首先核对什么"
 }
 ```
 
-画像只用于规划审查重点和预演反对意见，不是资质证明，也不能直接代替真人签署姓名。真实审核人的职务、姓名和资质状态必须另外记录。
+画像只用于规划审查重点和招募对应行业/职业的审核人，不是资质证明，也不能直接代替真人签署姓名。真实审核人的职务、姓名和资质状态必须另外记录。画像不要求专家必须提出反对意见；真实的全量采纳可以原样保留。
 
 ## 3. 每层审核表的最小字段
 
 ### 通用审查
 
 至少能够填写：任务/版本识别、文件清单与打开状态、reference 与 Gold 隔离、prompt 与 Rubric 一致性、证据定位、隐私与本地路径检查、渲染检查、finding（严重度、位置、建议）、结论和实质意见。
+
+检查项可以选择 `N/A`，但必须写一句原因；不得用无理由 `N/A` 批量跳过审查。
 
 ### 职业专家审查
 
@@ -123,10 +140,13 @@ delivery/<task_id>/
 - 整改记录，说明从哪个旧版本变更到哪个新版本。
 - 变更后的 prompt、Rubric、tasks、Gold、reference 和 ZIP 路径。
 - 每个目标文件的预期 SHA-256，或允许工具重新计算并回填。
-- 哪些条目需要重新评分，哪些条目只是哈希绑定确认。
-- ABC 等受限任务的授权文本，以及它绑定的当前文件哈希。
+- 哪些条目需要重新评分，哪些条目只是哈希绑定确认；未变化条目沿用原审查，不要求专家重填。
+- 每项整改的来源层、原意见、处置、证据文件、关闭时间，以及变更前后 basis/file SHA-256。
+- 受限任务的任务级授权文本，以及它绑定的 task ID、版本、证据文件与当前哈希。
 
 哈希补签不能只核对表内字符串。必须重新计算磁盘文件，检查 ZIP 内关键文件字节一致，并运行 ZIP CRC 校验。补签时间可以短于完整审查，但表内应明确它只是当前版本绑定确认，不替代完整审查。
+
+若原审核人勾选 `Requires confirmation=Yes`、给出 `Conditional pass/Fail`、职业映射为有条件/拒绝，或 Rubric 行为 `Revise/Reject`，整改后只向受影响的原审核人生成一份 changed-items-only XLSX。专家只确认变化项；发生变化的 Rubric/Gold 行才重新采纳和评分。补签仍有 Issue 时进入下一轮整改和精简补签，不重跑无关层。
 
 ## 5. 输入不完整时的处理
 
@@ -138,4 +158,11 @@ delivery/<task_id>/
 
 ## 6. 完成标准
 
-输入只有在以下条件都满足时才算可交给审查流程：任务和当前版本唯一可识别；所有待审文件可定位；通审、职业专家和终审表均有对应输入；身份/时间/资质登记字段可独立填写；整改后的哈希目标明确；权限边界和发布状态有证据或明确标记为未提供。
+准备状态分两级，不能一次性生成三个审核包：
+
+1. `phase1_ready`：任务和当前版本唯一；文件、来源、权利、职业标准卡和三条画像齐全；候选包冻结；同时生成通审与职业专家包。
+2. `final_ready`：两份首审回执已录入，全部整改和必要的 changed-items-only 补签已关闭，pre-final validation 通过，随后才冻结终审包。
+
+终审回执必须严格晚于两份首审、全部整改关闭、补签回执、pre-final validation 和终审包冻结时间。最终 strict validation 只比较冻结的业务 payload，允许 validator 写入新的 nonce/证据，但不允许 prompt、Rubric、Gold、reference 或 deliverable 任一字节变化。
+
+生成第一阶段审核包前，pipeline 还必须确认声明语言可识别，且 prompt 与每条 Rubric 的 criterion/verification 未出现可判定的中英文错配。整改时按 policy 的 `change_impact_layers` 计算实际受影响层；补签表会列出触发本层复核的已变更输入，未受影响层不重审。

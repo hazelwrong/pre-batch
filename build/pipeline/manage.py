@@ -347,6 +347,12 @@ def plan_next(workbench_root=DEFAULT_WORKBENCH, slots=4,
                 "phase1_review_failed": [
                     "apply_phase1_findings_then_create_new_phase1_review_kit"],
                 "remediation_required": ["apply_findings_and_record_remediation"],
+                "supplemental_review_kit_required": [
+                    "create_changed_items_only_review_kit"],
+                "awaiting_supplemental_reviews": [
+                    "collect_only_affected_reviewer_xlsx"],
+                "supplemental_review_failed": [
+                    "apply_supplemental_feedback_and_repeat_changed_items_only"],
                 "pre_final_validation_required": ["run_pre_final_validation"],
                 "final_review_kit_required": ["create_final_review_kit"],
                 "awaiting_final_review": ["collect_final_review_xlsx"],

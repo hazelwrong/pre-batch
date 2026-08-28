@@ -203,7 +203,9 @@
   },
   "human_review": {
     "workflow_mode": "staged_xlsx_v1",
+    "input_contract_schema": "review-input-v1",
     "phase1_parallel": true,
+    "phase1_nonpass_routes_to_remediation": true,
     "single_return_file": "xlsx",
     "raw_receipt_immutable": true,
     "receipt_sha256_required": true,
@@ -218,11 +220,69 @@
     "review_basis_required": true,
     "final_requires_remediation_closed": true,
     "supplemental_review_scope": "changed_items_only",
+    "supplemental_review_same_reviewer": true,
+    "supplemental_review_single_return_file": "xlsx",
+    "n_a_requires_reason": true,
+    "change_impact_layers": {
+      "general_review": {
+        "task_files": [
+          "task_meta.json",
+          "prompt.md",
+          "rubric.json",
+          "rubric_pretty.txt",
+          "provenance.json",
+          "source_inventory.json",
+          "gold_provenance.json",
+          "lineage.json",
+          "expert_profiles.json"
+        ],
+        "artifacts": [
+          "references",
+          "prompt",
+          "gold",
+          "gold_provenance",
+          "lineage_draft",
+          "rubric",
+          "coverage",
+          "output_contract"
+        ]
+      },
+      "occupational_expert_review": {
+        "task_files": [
+          "task_meta.json",
+          "prompt.md",
+          "rubric.json",
+          "rubric_pretty.txt",
+          "expected_values.json",
+          "source_inventory.json",
+          "gold_provenance.json",
+          "lineage.json",
+          "expert_profiles.json"
+        ],
+        "artifacts": [
+          "coverage",
+          "occupation_standard",
+          "references",
+          "prompt",
+          "gold",
+          "gold_provenance",
+          "lineage_draft",
+          "expected_values",
+          "verifier_report",
+          "rubric",
+          "output_contract"
+        ]
+      }
+    },
     "expert_profiles_required_per_task": 3,
     "expert_profile_required_fields": [
       "expert_id",
       "alias",
       "expert_role",
+      "review_layer",
+      "required_industry",
+      "required_occupation",
+      "review_scope",
       "expert_profile",
       "strengths",
       "first_thought"
@@ -238,6 +298,17 @@
     "final_strictly_after_first_two": true,
     "review_timestamps_require_timezone": true,
     "closure_evidence_required": true,
+    "restricted_use_authorization_required_fields": [
+      "status",
+      "confirmed_by",
+      "role",
+      "confirmed_at",
+      "task_id",
+      "scope",
+      "evidence_file",
+      "evidence_sha256",
+      "usage_boundaries"
+    ],
     "expert_rejection_required": false,
     "expert_rejection_note": "不得为了制造实质性而强迫专家反对。实质审查以职业映射理由、逐条 adopt/revise/reject、Gold 逐条评分和必要意见的完整性证明；真实的全量 adopt 可保留。",
     "substantive_review_required": true,

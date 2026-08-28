@@ -433,7 +433,7 @@
       "audience": "通用审查人",
       "stage_requires": ["production_complete", "candidate_delivery_frozen"],
       "may_run_in_parallel_with": ["occupational_expert_review"],
-      "required_readonly_inputs": ["candidate_delivery", "prompt", "file_manifest", "provenance_summary"],
+      "required_readonly_inputs": ["candidate_delivery", "prompt", "review_input_manifest", "file_manifest", "provenance_summary"],
       "single_return_file": "xlsx",
       "editable_sections": ["checklist_decisions", "findings", "verdict", "substantive_opinion"],
       "must_bind_basis": "initial_basis"
@@ -443,10 +443,21 @@
       "audience": "职业专家",
       "stage_requires": ["production_complete", "candidate_delivery_frozen"],
       "may_run_in_parallel_with": ["general_review"],
-      "required_readonly_inputs": ["candidate_delivery", "occupation_standard", "prompt", "rubric", "expected_values"],
+      "required_readonly_inputs": ["candidate_delivery", "occupation_standard", "review_input_manifest", "prompt", "rubric", "expected_values"],
       "single_return_file": "xlsx",
       "editable_sections": ["occupation_mapping", "professional_checklist", "rubric_adoption", "gold_item_scoring", "findings", "verdict", "substantive_opinion"],
       "must_bind_basis": "initial_basis"
+    },
+    "supplemental_review": {
+      "id": "H02S",
+      "audience": "仅限受影响的原通审人或原职业专家",
+      "stage_requires": ["phase1_receipts_ingested", "remediation_recorded", "changed_item_package_frozen"],
+      "required_readonly_inputs": ["original_receipt", "changed_items", "remediation_evidence", "post_remediation_candidate", "hash_manifest"],
+      "single_return_file": "xlsx",
+      "editable_sections": ["changed_item_confirmation", "changed_rubric_adoption", "changed_gold_scoring", "verdict", "substantive_opinion"],
+      "must_bind_basis": "post_remediation_basis",
+      "must_use_original_reviewer": true,
+      "unchanged_items_are_carried_forward": true
     },
     "final_review": {
       "id": "H03",

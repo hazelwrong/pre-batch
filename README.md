@@ -32,6 +32,13 @@ first-layer XLSX reviews, remediation, pre-final validation, a later third-perso
 final XLSX review, strict final validation, H-REG, then the deterministic
 two-archive hash check.
 
+Review-package generation is fail-closed against `review-input-v1`. Each
+reviewer workbook includes a tailored brief and current file inventory. A
+Conditional pass, Fail, conditional occupation mapping, Rubric Revise/Reject or
+explicit confirmation request enters remediation; only affected original
+reviewers receive a changed-items-only supplemental XLSX. Unchanged decisions
+are carried forward and no reviewer is required to manufacture an objection.
+
 ## Safety boundary
 
 `deliverable_files` are real Gold files and must be supplied by the task owner

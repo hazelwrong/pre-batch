@@ -9,11 +9,14 @@ from xml.sax.saxutils import escape
 
 from orchestrator import (Pipeline, PipelineError, PRODUCTION_ROLES,
                           REQUIRED_VALIDATION_CHECKS,
-                          _bundle_manifest, _sha256,
+                          _bundle_manifest, _review_payload_digest, _sha256,
                           validation_registry_digest)
 from review_kits import (_display_literal, _final_config, _phase1_configs,
-                         _candidate_snapshot, create_final, ingest_receipt, production_basis,
-                         record_remediation)
+                         _candidate_snapshot, _supplemental_config,
+                         _review_change_impacts,
+                         _xlsx_cells,
+                         create_final, create_supplemental, ingest_receipt,
+                         ingest_supplemental, production_basis, record_remediation)
 
 
 class StagedReviewTest(unittest.TestCase):
@@ -77,7 +80,7 @@ class StagedReviewTest(unittest.TestCase):
         path.write_text(json.dumps(value), encoding="utf-8")
 
     @staticmethod
-    def xlsx(path, sheets):
+    def xlsx(path, sheets, absolute_targets=False):
         def sheet_xml(cells):
             rows = {}
             for address, value in cells.items():
@@ -110,9 +113,10 @@ class StagedReviewTest(unittest.TestCase):
         relationships = ('<?xml version="1.0" encoding="utf-8"?>'
                          '<Relationships xmlns="http://schemas.openxmlformats.org/'
                          'package/2006/relationships">%s</Relationships>') % \
-            "".join('<Relationship Id="rId%d" Target="worksheets/sheet%d.xml" '
+            "".join('<Relationship Id="rId%d" Target="%sworksheets/sheet%d.xml" '
                     'Type="http://schemas.openxmlformats.org/officeDocument/2006/'
-                    'relationships/worksheet"/>' % (index, index)
+                    'relationships/worksheet"/>' % (
+                        index, "/xl/" if absolute_targets else "", index)
                     for index in range(1, len(names) + 1))
         with zipfile.ZipFile(path, "w") as archive:
             archive.writestr("[Content_Types].xml", "<Types/>")
@@ -129,7 +133,8 @@ class StagedReviewTest(unittest.TestCase):
             "A8": "Candidate SHA-256", "B8": candidate_sha,
         }
 
-    def workbook(self, layer, path, verdict="Pass"):
+    def workbook(self, layer, path, verdict="Pass", unexplained_na=False,
+                 finding_confirmation=None):
         state = self.pipeline._load()
         meta = json.loads((self.task / "task_meta.json").read_text(encoding="utf-8"))
         candidate_sha = (state["review_cycle"]["candidate_delivery"]["sha256"]
@@ -144,11 +149,20 @@ class StagedReviewTest(unittest.TestCase):
                 row = 11 + index
                 main["A%d" % row] = "G%02d" % index
                 main["B%d" % row] = general_config["checklist"][index - 1]["text"]
-                main["C%d" % row] = "Pass"
+                main["C%d" % row] = (
+                    "N/A" if unexplained_na and index == 1 else
+                    "Issue" if finding_confirmation and index == 1 else "Pass")
             main.update({"A22": "Conclusion", "B22": verdict,
                          "A23": "Substantive opinion",
                          "B23": "Completed a substantive review."})
-            sheets = {"General Review": main, "Findings": {}}
+            findings = {}
+            if finding_confirmation:
+                findings = {
+                    "A4": "G-F01", "B4": "Major", "C4": "tasks.jsonl",
+                    "D4": "Mismatch", "E4": "Correct it",
+                    "F4": finding_confirmation,
+                }
+            sheets = {"General Review": main, "Findings": findings}
         elif layer == "occupational_expert_review":
             _general_config, expert_config = _phase1_configs(
                 meta, self.items, self.codes,
@@ -207,6 +221,37 @@ class StagedReviewTest(unittest.TestCase):
                       "Finding Closure": {"A4": "None", "G4": "Confirmed"}}
         self.xlsx(path, sheets)
 
+    def supplemental_workbook(self, path, decision, verdict, opinion):
+        state = self.pipeline._load()
+        package = state["review_cycle"]["remediation"]["supplemental_package"]
+        meta = json.loads((self.task / "task_meta.json").read_text(encoding="utf-8"))
+        config = _supplemental_config(
+            meta, self.items, self.codes,
+            production_basis(self.pipeline, self.tasks),
+            package["candidate_sha256"], state["review_cycle"],
+            "general_review")
+        main = self.metadata(package["candidate_sha256"])
+        for index, item in enumerate(config["requirements"], start=12):
+            main.update({
+                "A%d" % index: item["requirement_id"],
+                "B%d" % index: item["kind"],
+                "C%d" % index: item["summary"],
+                "D%d" % index: item["remediation_display"],
+                "E%d" % index: decision,
+                "F%d" % index: ("The correction remains incomplete."
+                                 if decision == "Issue" else ""),
+                "G%d" % index: "N/A", "H%d" % index: "N/A",
+                "I%d" % index: "N/A",
+            })
+        last = 11 + len(config["requirements"])
+        main.update({
+            "A%d" % (last + 3): "Conclusion",
+            "B%d" % (last + 3): verdict,
+            "A%d" % (last + 4): "Substantive opinion",
+            "B%d" % (last + 4): opinion,
+        })
+        self.xlsx(path, {"Supplemental Review": main})
+
     def transcription(self, layer, reviewer, reviewed_at):
         return {
             "task_id": self.pipeline._load()["task_id"], "layer": layer,
@@ -259,6 +304,8 @@ class StagedReviewTest(unittest.TestCase):
     def prepare_final_package(self, frozen_at="2026-08-27T11:00:00+08:00"):
         final_delivery = self.validation_tree(final=True)
         delivery_digest, _files = _bundle_manifest(final_delivery)
+        review_payload_digest, _payload = _review_payload_digest(
+            final_delivery, self.pipeline._load()["task_id"])
         package = self.root / "Final-Review-Package.zip"
         package.write_bytes(b"package")
         artifact = self.pipeline.add_artifact(
@@ -271,6 +318,7 @@ class StagedReviewTest(unittest.TestCase):
             "basis_digest": state["review_cycle"]["remediation"]["to_basis_digest"],
             "candidate_sha256": "b" * 64,
             "delivery_digest": delivery_digest,
+            "review_payload_digest": review_payload_digest,
             "frozen_at": frozen_at,
         }
         state["review_cycle"]["status"] = "awaiting_final_review"
@@ -327,6 +375,127 @@ class StagedReviewTest(unittest.TestCase):
             ingest_receipt(self.pipeline, "general_review", receipt,
                            transcription, self.tasks)
         self.assertIn("valid XLSX", str(caught.exception))
+
+    def test_na_decision_requires_a_reason(self):
+        receipt = self.root / "general_review.xlsx"
+        self.workbook("general_review", receipt, unexplained_na=True)
+        transcription = self.root / "general.json"
+        self.write_json(transcription, self.transcription(
+            "general_review", "person-a", "2026-08-27T10:00:00+08:00"))
+        with self.assertRaises(PipelineError) as caught:
+            ingest_receipt(self.pipeline, "general_review", receipt,
+                           transcription, self.tasks)
+        self.assertIn("N/A needs", str(caught.exception))
+
+    def test_chinese_review_config_and_receipt_stay_in_task_language(self):
+        meta = json.loads((self.task / "task_meta.json").read_text(encoding="utf-8"))
+        meta["language"] = "Chinese"
+        self.write_json(self.task / "task_meta.json", meta)
+        state = self.pipeline._load()
+        state["review_cycle"]["initial_basis"] = production_basis(
+            self.pipeline, self.tasks)
+        self.pipeline._save(state)
+        general, expert = _phase1_configs(
+            meta, self.items, self.codes, state["review_cycle"]["initial_basis"],
+            state["review_cycle"]["candidate_delivery"]["sha256"])
+        self.assertEqual(general["locale"], "zh")
+        self.assertEqual(general["ui"]["sheet_names"]["general_review"], "通用审查")
+        self.assertEqual(general["ui"]["choices"]["pass"], "通过")
+        self.assertTrue(all(any("\u4e00" <= char <= "\u9fff"
+                                for char in item["text"])
+                            for item in general["checklist"]))
+        self.assertEqual(expert["title"], "GDPval 职业专家审查")
+
+        candidate_sha = state["review_cycle"]["candidate_delivery"]["sha256"]
+        cells = {
+            "A3": "任务 ID", "B3": state["task_id"],
+            "A7": "评分标准版本", "B7": "v1",
+            "A8": "候选包 SHA-256", "B8": candidate_sha,
+            "A22": "结论", "B22": "通过",
+            "A23": "实质意见", "B23": "已完成实质审查，未发现需要整改的问题。",
+        }
+        for index, item in enumerate(general["checklist"], start=12):
+            cells.update({"A%d" % index: item["id"],
+                          "B%d" % index: item["text"],
+                          "C%d" % index: "通过"})
+        receipt = self.root / "chinese-general-review.xlsx"
+        self.xlsx(receipt, {"通用审查": cells, "问题记录": {}})
+        transcription = self.root / "chinese-general-review.json"
+        self.write_json(transcription, self.transcription(
+            "general_review", "person-a", "2026-08-27T10:00:00+08:00"))
+        ingest_receipt(
+            self.pipeline, "general_review", receipt, transcription, self.tasks)
+        stored = self.pipeline._load()["review_cycle"]["phase1"]["receipts"]
+        self.assertEqual(stored["general_review"]["record"]["verdict"], "Pass")
+
+        expert_cells = {
+            "A3": "任务 ID", "B3": state["task_id"],
+            "A7": "评分标准版本", "B7": "v1",
+            "A8": "候选包 SHA-256", "B8": candidate_sha,
+            "A11": "建议职业映射", "B11": expert["mapping"]["proposed"],
+            "A12": "角色边界", "B12": expert["mapping"]["boundary"],
+            "A13": "判断", "B13": "接受",
+            "A14": "判断理由", "B14": "该映射符合任务所述角色边界。",
+            "A25": "结论", "B25": "通过",
+            "A26": "实质意见", "B26": "已完成专业核对，未发现需要整改的问题。",
+        }
+        for index, item in enumerate(expert["checklist"], start=18):
+            expert_cells.update({"A%d" % index: item["id"],
+                                 "B%d" % index: item["text"],
+                                 "C%d" % index: "通过"})
+        rubric_cells = {}
+        for index, (code, item) in enumerate(zip(self.codes, self.items), start=4):
+            rubric_cells.update({
+                "A%d" % index: code, "B%d" % index: item["rubric_item_id"],
+                "C%d" % index: True, "D%d" % index: 4,
+                "E%d" % index: item["criterion"],
+                "F%d" % index: (item["verification"] + "\n机器结果: " +
+                                 expert["rubrics"][index - 4]["machine_result"]),
+                "G%d" % index: "采纳", "I%d" % index: 4,
+                "J%d" % index: "已在 Gold 中定位对应证据。",
+            })
+        expert_receipt = self.root / "chinese-occupational-review.xlsx"
+        self.xlsx(expert_receipt, {
+            "职业审查": expert_cells, "评分标准与Gold": rubric_cells,
+            "问题记录": {},
+        })
+        expert_transcription = self.root / "chinese-occupational-review.json"
+        self.write_json(expert_transcription, self.transcription(
+            "occupational_expert_review", "person-b",
+            "2026-08-27T10:05:00+08:00"))
+        ingest_receipt(self.pipeline, "occupational_expert_review",
+                       expert_receipt, expert_transcription, self.tasks)
+        stored = self.pipeline._load()["review_cycle"]["phase1"]["receipts"]
+        self.assertEqual(
+            stored["occupational_expert_review"]["record"]
+            ["occupation_mapping_decision"], "Accept")
+        self.assertTrue(all(item["adoption"] == "Adopt" for item in
+                            stored["occupational_expert_review"]["record"]
+                            ["rubric_items"]))
+
+    def test_change_impact_matrix_routes_only_affected_review_layers(self):
+        initial = production_basis(self.pipeline, self.tasks)
+        (self.task / "prompt.md").write_text(
+            "Complete the clarified task.\n", encoding="utf-8")
+        prompt_impacts = _review_change_impacts(
+            initial, production_basis(self.pipeline, self.tasks),
+            self.pipeline.policy)
+        self.assertEqual(set(prompt_impacts), {
+            "general_review", "occupational_expert_review"})
+
+        (self.task / "prompt.md").write_text("Complete the task.\n", encoding="utf-8")
+        initial = production_basis(self.pipeline, self.tasks)
+        self.write_json(self.task / "provenance.json", {"review_note": "updated"})
+        provenance_impacts = _review_change_impacts(
+            initial, production_basis(self.pipeline, self.tasks),
+            self.pipeline.policy)
+        self.assertEqual(set(provenance_impacts), {"general_review"})
+
+    def test_parser_accepts_ooxml_root_relative_sheet_targets(self):
+        workbook = self.root / "root-relative-target.xlsx"
+        self.xlsx(workbook, {"通用审查": {"A1": "可打开"}},
+                  absolute_targets=True)
+        self.assertEqual(_xlsx_cells(workbook)["通用审查"]["A1"], "可打开")
 
     def test_transcription_cannot_repeat_workbook_conclusion(self):
         receipt = self.root / "general_review.xlsx"
@@ -392,7 +561,7 @@ class StagedReviewTest(unittest.TestCase):
             self.pipeline.record_validation(delivery, "pre_final")
         self.assertIn("incomplete", str(caught.exception))
 
-    def test_non_passing_phase1_receipt_blocks_remediation(self):
+    def test_non_passing_phase1_receipt_enters_remediation(self):
         self.ingest("general_review", "person-a",
                     "2026-08-27T10:00:00+08:00")
         receipt = self.root / "occupational_expert_review.xlsx"
@@ -405,27 +574,55 @@ class StagedReviewTest(unittest.TestCase):
         ingest_receipt(self.pipeline, "occupational_expert_review", receipt,
                        transcription, self.tasks)
         self.assertEqual(self.pipeline.status()["workflow_stage"],
-                         "phase1_review_failed")
+                         "remediation_required")
         closure = self.root / "closure.json"
         self.write_json(closure, {
             "task_id": self.pipeline._load()["task_id"], "findings": []})
         with self.assertRaises(PipelineError):
             record_remediation(self.pipeline, closure, self.tasks)
 
+    def test_conditional_pass_can_close_through_supplemental_route(self):
+        self.ingest("general_review", "person-a",
+                    "2026-08-27T10:00:00+08:00")
+        receipt = self.root / "occupational_expert_review.xlsx"
+        self.workbook("occupational_expert_review", receipt,
+                      verdict="Conditional pass")
+        transcription = self.root / "occupational.json"
+        self.write_json(transcription, self.transcription(
+            "occupational_expert_review", "person-b",
+            "2026-08-27T10:05:00+08:00"))
+        ingest_receipt(self.pipeline, "occupational_expert_review", receipt,
+                       transcription, self.tasks)
+        (self.task / "prompt.md").write_text(
+            "Complete the clarified task.\n", encoding="utf-8")
+        evidence = self.root / "conditional-closure.txt"
+        evidence.write_text("clarified", encoding="utf-8")
+        closure = self.root / "conditional-closure.json"
+        self.write_json(closure, {
+            "task_id": self.pipeline._load()["task_id"],
+            "findings": [{
+                "finding_id": "E-VERDICT", "disposition": "closed",
+                "rationale": "Clarified the condition in the prompt.",
+                "closed_at": "2026-08-27T10:10:00+08:00",
+                "evidence_files": ["conditional-closure.txt"],
+            }],
+        })
+        record_remediation(self.pipeline, closure, self.tasks)
+        self.assertEqual(self.pipeline.status()["workflow_stage"],
+                         "supplemental_review_kit_required")
+
     def add_general_finding(self, requires_confirmation):
-        self.ingest("general_review", "person-a", "2026-08-27T10:00:00+08:00")
+        receipt = self.root / "general_review.xlsx"
+        self.workbook(
+            "general_review", receipt,
+            finding_confirmation="Yes" if requires_confirmation else "No")
+        transcription = self.root / "general_review.json"
+        self.write_json(transcription, self.transcription(
+            "general_review", "person-a", "2026-08-27T10:00:00+08:00"))
+        ingest_receipt(
+            self.pipeline, "general_review", receipt, transcription, self.tasks)
         self.ingest("occupational_expert_review", "person-b",
                     "2026-08-27T10:05:00+08:00")
-        state = self.pipeline._load()
-        receipt = state["review_cycle"]["phase1"]["receipts"]["general_review"]
-        receipt["finding_ids"] = ["G-F01"]
-        receipt["record"]["findings"] = [{
-            "finding_id": "G-F01", "severity": "Major",
-            "location": "tasks.jsonl", "issue": "Mismatch",
-            "recommendation": "Correct it",
-            "requires_confirmation": requires_confirmation,
-        }]
-        self.pipeline._save(state)
 
     def remediation_record(self, closed_at):
         evidence = self.root / "closure.txt"
@@ -450,14 +647,231 @@ class StagedReviewTest(unittest.TestCase):
                 self.tasks)
         self.assertIn("strictly after", str(caught.exception))
 
-    def test_requested_supplemental_confirmation_blocks_advancement(self):
-        self.add_general_finding(True)
+    def test_remediation_cannot_close_at_same_instant_as_source_review(self):
+        self.add_general_finding(False)
         with self.assertRaises(PipelineError) as caught:
             record_remediation(
                 self.pipeline,
-                self.remediation_record("2026-08-27T10:10:00+08:00"),
+                self.remediation_record("2026-08-27T02:00:00+00:00"),
                 self.tasks)
-        self.assertIn("original reviewer", str(caught.exception))
+        self.assertIn("strictly after", str(caught.exception))
+
+    def test_phase1_receipt_cannot_be_replaced_to_remove_confirmation(self):
+        self.add_general_finding(True)
+        replacement = self.root / "general-replacement.xlsx"
+        self.workbook("general_review", replacement)
+        transcription = self.root / "general-replacement.json"
+        self.write_json(transcription, self.transcription(
+            "general_review", "person-a", "2026-08-27T10:06:00+08:00"))
+        with self.assertRaises(PipelineError) as caught:
+            ingest_receipt(self.pipeline, "general_review", replacement,
+                           transcription, self.tasks)
+        self.assertIn("immutable", str(caught.exception))
+        stored = self.pipeline._load()["review_cycle"]["phase1"]["receipts"]
+        self.assertTrue(
+            stored["general_review"]["record"]["findings"][0]
+            ["requires_confirmation"])
+
+    def test_requested_confirmation_routes_to_changed_items_only(self):
+        self.add_general_finding(True)
+        (self.task / "prompt.md").write_text(
+            "Complete the corrected task.\n", encoding="utf-8")
+        record_remediation(
+            self.pipeline,
+            self.remediation_record("2026-08-27T10:10:00+08:00"),
+            self.tasks)
+        self.assertEqual(self.pipeline.status()["workflow_stage"],
+                         "supplemental_review_kit_required")
+
+    def test_changed_items_only_receipt_closes_phase1_without_full_rerun(self):
+        self.add_general_finding(True)
+        self.write_json(self.task / "provenance.json", {
+            "review_note": "Corrected the general-review provenance issue."})
+        record_remediation(
+            self.pipeline,
+            self.remediation_record("2026-08-27T10:10:00+08:00"),
+            self.tasks)
+        delivery = self.validation_tree()
+
+        def fake_builder(_config, output, _node, _modules):
+            Path(output).write_bytes(b"supplemental workbook placeholder")
+
+        with mock.patch("review_kits._run_builder", side_effect=fake_builder):
+            create_supplemental(
+                self.pipeline, delivery, self.tasks, self.root / "supp-output",
+                self.root / "node", self.root / "modules")
+        state = self.pipeline._load()
+        package = state["review_cycle"]["remediation"]["supplemental_package"]
+        meta = json.loads((self.task / "task_meta.json").read_text(encoding="utf-8"))
+        config = _supplemental_config(
+            meta, self.items, self.codes,
+            production_basis(self.pipeline, self.tasks),
+            package["candidate_sha256"], state["review_cycle"], "general_review")
+        main = self.metadata(package["candidate_sha256"])
+        for index, item in enumerate(config["requirements"], start=12):
+            main.update({
+                "A%d" % index: item["requirement_id"],
+                "B%d" % index: item["kind"],
+                "C%d" % index: item["summary"],
+                "D%d" % index: item["remediation_display"],
+                "E%d" % index: "Confirmed",
+                "G%d" % index: "N/A", "H%d" % index: "N/A",
+                "I%d" % index: "N/A",
+            })
+        last = 11 + len(config["requirements"])
+        main.update({"A%d" % (last + 3): "Conclusion",
+                     "B%d" % (last + 3): "Pass",
+                     "A%d" % (last + 4): "Substantive opinion",
+                     "B%d" % (last + 4): "The corrected prompt closes my finding."})
+        receipt = self.root / "general-supplemental.xlsx"
+        self.xlsx(receipt, {"Supplemental Review": main})
+        transcription = self.root / "general-supplemental.json"
+        self.write_json(transcription, self.transcription(
+            "general_review", "person-a", "2026-08-29T10:00:00+08:00"))
+        result = ingest_supplemental(
+            self.pipeline, "general_review", receipt, transcription, self.tasks)
+        self.assertEqual(result["workflow_stage"], "pre_final_validation_required")
+        receipt_state = self.pipeline._load()["review_cycle"]["phase1"]["receipts"]["general_review"]
+        self.assertEqual(receipt_state["release_verdict"], "Pass")
+
+    def test_failed_supplemental_receipt_cannot_be_replaced_without_remediation(self):
+        self.add_general_finding(True)
+        (self.task / "prompt.md").write_text(
+            "Complete the corrected task.\n", encoding="utf-8")
+        record_remediation(
+            self.pipeline,
+            self.remediation_record("2026-08-27T10:10:00+08:00"),
+            self.tasks)
+        delivery = self.validation_tree()
+        task_row = json.loads((delivery / "tasks.jsonl").read_text(encoding="utf-8"))
+        task_row["prompt"] = "Complete the corrected task."
+        (delivery / "tasks.jsonl").write_text(
+            json.dumps(task_row) + "\n", encoding="utf-8")
+
+        def fake_builder(_config, output, _node, _modules):
+            Path(output).write_bytes(b"supplemental workbook placeholder")
+
+        with mock.patch("review_kits._run_builder", side_effect=fake_builder):
+            create_supplemental(
+                self.pipeline, delivery, self.tasks, self.root / "supp-output",
+                self.root / "node", self.root / "modules")
+        state = self.pipeline._load()
+        state["review_cycle"]["remediation"]["supplemental_receipts"] = {
+            "general_review": {"verdict": "Fail"},
+        }
+        state["review_cycle"]["status"] = "supplemental_review_failed"
+        self.pipeline._save(state)
+
+        replacement = self.root / "supplemental-replacement.xlsx"
+        self.workbook("general_review", replacement)
+        transcription = self.root / "supplemental-replacement.json"
+        self.write_json(transcription, self.transcription(
+            "general_review", "person-a", "2026-08-29T10:00:00+08:00"))
+        with self.assertRaises(PipelineError) as caught:
+            ingest_supplemental(
+                self.pipeline, "general_review", replacement,
+                transcription, self.tasks)
+        self.assertIn("immutable", str(caught.exception))
+        self.assertEqual(self.pipeline.status()["workflow_stage"],
+                         "supplemental_review_failed")
+
+    def test_failed_supplemental_reenters_remediation_then_passes(self):
+        self.add_general_finding(True)
+        self.write_json(self.task / "provenance.json", {
+            "review_note": "First general-review correction."})
+        record_remediation(
+            self.pipeline,
+            self.remediation_record("2026-08-27T10:10:00+08:00"),
+            self.tasks)
+        first_delivery = self.validation_tree()
+
+        def fake_builder(_config, output, _node, _modules):
+            Path(output).write_bytes(b"supplemental workbook placeholder")
+
+        with mock.patch("review_kits._run_builder", side_effect=fake_builder):
+            create_supplemental(
+                self.pipeline, first_delivery, self.tasks,
+                self.root / "first-supp-output", self.root / "node",
+                self.root / "modules")
+        failed_receipt = self.root / "general-supplemental-fail.xlsx"
+        self.supplemental_workbook(
+            failed_receipt, "Issue", "Fail",
+            "The first correction does not fully resolve the finding.")
+        failed_transcription = self.root / "general-supplemental-fail.json"
+        self.write_json(failed_transcription, self.transcription(
+            "general_review", "person-a", "2026-08-29T10:00:00+08:00"))
+        failed = ingest_supplemental(
+            self.pipeline, "general_review", failed_receipt,
+            failed_transcription, self.tasks)
+        self.assertEqual(failed["workflow_stage"], "supplemental_review_failed")
+        failed_sha = failed["receipt_sha256"]
+
+        self.write_json(self.task / "provenance.json", {
+            "review_note": "Second and complete general-review correction."})
+        second_evidence = self.root / "second-round-closure.txt"
+        second_evidence.write_text("fully corrected", encoding="utf-8")
+        second_closure = self.root / "second-round-closure.json"
+        self.write_json(second_closure, {
+            "task_id": self.pipeline._load()["task_id"],
+            "findings": [{
+                "finding_id": "SUP-G-G-F01", "disposition": "closed",
+                "rationale": "Completed the correction requested in re-review.",
+                "closed_at": "2026-08-29T10:10:00+08:00",
+                "evidence_files": ["second-round-closure.txt"],
+            }, {
+                "finding_id": "SUP-G-G-DEPENDENCY-CHANGE",
+                "disposition": "closed",
+                "rationale": "Updated and rechecked the affected review input.",
+                "closed_at": "2026-08-29T10:10:00+08:00",
+                "evidence_files": ["second-round-closure.txt"],
+            }],
+        })
+        record_remediation(self.pipeline, second_closure, self.tasks)
+        state = self.pipeline._load()
+        history = state["review_cycle"]["remediation_history"]
+        self.assertEqual(len(history), 1)
+        self.assertEqual(
+            history[0]["supplemental_receipts"]["general_review"]["verdict"],
+            "Fail")
+        self.assertEqual(
+            history[0]["supplemental_receipts"]["general_review"]
+            ["source_receipt_sha256"], failed_sha)
+        self.assertEqual(
+            history[0]["supplemental_receipts"]["general_review"]
+            ["record"]["items"][0]["decision"], "Issue")
+        self.assertTrue(history[0]["artifact_digest"])
+        self.assertEqual(history[0]["requirements"][0]["requirement_id"],
+                         "G-F01")
+        self.assertEqual(
+            state["review_cycle"]["remediation"]["requirements"][0]
+            ["requirement_id"], "SUP-G-G-F01")
+
+        second_delivery = first_delivery
+        with mock.patch("review_kits._run_builder", side_effect=fake_builder):
+            create_supplemental(
+                self.pipeline, second_delivery, self.tasks,
+                self.root / "second-supp-output", self.root / "node",
+                self.root / "modules")
+        passed_receipt = self.root / "general-supplemental-pass.xlsx"
+        self.supplemental_workbook(
+            passed_receipt, "Confirmed", "Pass",
+            "The second correction fully resolves the finding.")
+        passed_transcription = self.root / "general-supplemental-pass.json"
+        self.write_json(passed_transcription, self.transcription(
+            "general_review", "person-a", "2026-08-29T10:20:00+08:00"))
+        passed = ingest_supplemental(
+            self.pipeline, "general_review", passed_receipt,
+            passed_transcription, self.tasks)
+        self.assertEqual(passed["workflow_stage"],
+                         "pre_final_validation_required")
+        state = self.pipeline._load()
+        self.assertEqual(len(state["review_cycle"]["remediation_history"]), 1)
+        self.assertEqual(
+            state["review_cycle"]["remediation_history"][0]
+            ["supplemental_receipts"]["general_review"]["verdict"], "Fail")
+        self.assertEqual(
+            state["review_cycle"]["remediation"]["supplemental_receipts"]
+            ["general_review"]["verdict"], "Pass")
 
     def test_final_validation_rejects_delivery_changed_after_freeze(self):
         self.ingest("general_review", "person-a", "2026-08-27T10:00:00+08:00")
@@ -470,10 +884,30 @@ class StagedReviewTest(unittest.TestCase):
         self.pipeline.record_validation(self.validation_tree(), "pre_final")
         final_delivery = self.prepare_final_package()
         self.ingest("final_review", "person-c", "2026-08-27T11:05:00+08:00")
-        (final_delivery / "changed.txt").write_text("changed", encoding="utf-8")
+        record = json.loads((final_delivery / "tasks.jsonl").read_text(
+            encoding="utf-8"))
+        record["prompt"] = "Changed after final review."
+        (final_delivery / "tasks.jsonl").write_text(
+            json.dumps(record) + "\n", encoding="utf-8")
         with self.assertRaises(PipelineError) as caught:
             self.pipeline.record_validation(final_delivery, "final")
         self.assertIn("changed after", str(caught.exception))
+
+    def test_final_validation_allows_nonce_bearing_evidence_to_change(self):
+        self.ingest("general_review", "person-a", "2026-08-27T10:00:00+08:00")
+        self.ingest("occupational_expert_review", "person-b",
+                    "2026-08-27T10:05:00+08:00")
+        closure = self.root / "closure.json"
+        self.write_json(closure, {
+            "task_id": self.pipeline._load()["task_id"], "findings": []})
+        record_remediation(self.pipeline, closure, self.tasks)
+        self.pipeline.record_validation(self.validation_tree(), "pre_final")
+        final_delivery = self.prepare_final_package()
+        self.ingest("final_review", "person-c", "2026-08-27T11:05:00+08:00")
+        (final_delivery / "validation_evidence" /
+         self.pipeline._load()["task_id"] / "new-nonce.json").write_text(
+             "{}", encoding="utf-8")
+        self.pipeline.record_validation(final_delivery, "final")
 
     def test_final_package_contains_all_frozen_review_materials(self):
         self.ingest("general_review", "person-a", "2026-08-27T10:00:00+08:00")

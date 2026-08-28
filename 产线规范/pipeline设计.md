@@ -100,13 +100,19 @@ T10 不启动 LLM。它登记真实文件、许可、生产方式与变换记录
 
 ## 6. 两阶段、三层人审
 
-角色生产与 rubric 完成后先冻结 `Candidate-Delivery-Package.zip`，并生成 `Phase-1-Human-Review-Kit.zip`。通用审查与职业专家审查可并行；每位审核人只返回一个 XLSX。职业专家在同一工作簿中完成职业映射、rubric 逐条采纳和 Gold 逐条评分，不再在 MD 与 TSV 间切换。
+角色生产与 rubric 完成后，先生成并验证 `review-input-v1`。该机器契约一次性绑定任务与版本、prompt/Rubric/Gold/reference/deliverable 路径及哈希、真实来源与权利边界、职业标准卡和三层审查人画像。字段缺失、真实 deliverable 与来源哈希不一致、权利边界不完整或三位画像不覆盖全部审查层时 fail-close，不生成空壳审核包。
+
+契约通过后先冻结 `Candidate-Delivery-Package.zip`，并生成 `Phase-1-Human-Review-Kit.zip`。每份审核工作簿必须有面向当前审核人的审核摘要与文件清单，明确行业、职业、范围、真实来源、权利边界、字节数和 SHA-256。通用审查与职业专家审查可并行；每位审核人只返回一个 XLSX。职业专家在同一工作簿中完成职业映射、rubric 逐条采纳和 Gold 逐条评分，不再在 MD 与 TSV 间切换。工作簿跟随任务语言，不得因模板引入不必要的中英混排。
 
 项目方从真实回执录入姓名、职务、带时区时间和资质状态，原始 XLSX 逐字节保留并登记 SHA-256。姓名、时间、资质不得由 pipeline 推断或补造；缺少资质证据时使用 `credential_status=not_supplied`。
 
-两份首审回执完成后，finding 必须逐项记录 disposition、理由、证据文件与带时区 `closed_at`。如确需原审核人补充确认，只复核发生变化的条目或文件，不重做全表。整改后运行 pre-final validation；它只允许终审层为 `not_run`。随后冻结终审包，第三位真人只返回一个 `Final-Review.xlsx`。终审时间必须严格晚于前两层、全部 `closed_at`、补充确认、pre-final validation 和终审包冻结时间；相同时间戳不构成时间差。
+两份首审回执完成后，任一 `Conditional pass`/`Fail`、不接受的职业映射、Rubric `Revise/Reject`、finding 或显式勾选的补充确认要求，均汇总为同一整改清单。finding 必须逐项记录 disposition、理由、证据文件与带时区 `closed_at`，且 `closed_at` 必须严格晚于原审核时间。不得强制审核人制造反对意见；无异议可直接通过，`N/A` 则需一句简短理由。
 
-证据绑定 review basis 与 rubric 版本；三位签署人必须不同，职业专家资质状态、逐条采纳/修改/拒绝、Gold 评分与取证位置必须齐全。不得强迫专家制造一条反对意见来证明认真审核。首审绑定 `initial_basis`，整改用 `from_basis_digest → to_basis_digest` 保留历史；后续变更只使实际依赖它的确认、validation 与 H-REG stale。
+如整改改变了审核人已签署的项目，pipeline 按 `policy.human_review.change_impact_layers` 将任务文件和生产 artifact 的真实变化映射到受影响层，只向对应原审核人生成一份 changed-items-only 补充复核 XLSX；补签表列明触发本层复核的变更输入，未变更决定自动延续，变更的 Rubric/Gold 才重新采纳和评分。补充复核不通过时回到新一轮整改，原始回执、历史整改与每轮补签均保留。整改后运行 pre-final validation；它只允许终审层为 `not_run`。随后冻结终审包，第三位真人只返回一个 `Final-Review.xlsx`。终审时间必须严格晚于前两层、全部 `closed_at`、补充确认、pre-final validation 和终审包冻结时间；相同时间戳不构成时间差。
+
+第一阶段审核包生成前另有两个 fail-close 入口：真实 deliverable 的逐文件来源记录必须包含 URL、来源哈希、权利主体、许可和获取日期，且当前文件必须与来源哈希逐字节一致；任务声明语言必须可识别，prompt 与 Rubric 的 criterion/verification 不得出现可机器判定的中英文错配。采用的 reference 不得标为 `synthetic`，脱敏或重构 reference 必须标为 `desensitization` 并登记 transformation record。这些缺口不得转嫁给审核专家。
+
+证据绑定 review basis 与 rubric 版本；三位签署人必须不同，职业专家资质状态、逐条采纳/修改/拒绝、Gold 评分与取证位置必须齐全。首审绑定 `initial_basis`，整改用 `from_basis_digest → to_basis_digest` 保留历史；后续变更只使实际依赖它的确认、validation 与 H-REG stale。终审冻结的 `review_payload_digest` 只绑定业务内容：当前 `tasks.jsonl` 任务行、已声明 reference 和 deliverable；验证证据可在终审后更新，但任何已审业务内容变更都会使终审失效。
 
 ## 7. Strict final validation 与发布
 

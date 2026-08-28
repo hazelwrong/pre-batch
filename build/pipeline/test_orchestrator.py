@@ -20,8 +20,11 @@ import openpyxl
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from orchestrator import (Pipeline, PipelineError, DEFAULT_POLICY,
                           REQUIRED_VALIDATION_CHECKS,
+                          VALIDATION_REGISTRY_VERSION,
                           _sha256, sample_rubric_item_count,
                           validation_registry_digest)
+
+RUN_FIXED_VALIDATOR = Pipeline._run_fixed_validator
 
 
 def rubric_items(count=40):
@@ -86,7 +89,7 @@ class PipelineTest(unittest.TestCase):
                 "nonce": "test-validation-nonce", "returncode": 0,
                 "stdout": "", "stderr": "",
             })
-        self.validator_run.start()
+        self.fixed_validator = self.validator_run.start()
         self.inputs = self.base / "inputs"
         self.inputs.mkdir()
         for category in ("coverage", "source_manifest", "occupation_standard",
@@ -180,6 +183,7 @@ class PipelineTest(unittest.TestCase):
             "validator": "pipeline/validate.py (programmatic self-check)",
             "validator_sha256": _sha256(Path(__file__).with_name("validate.py")),
             "validation_run_nonce": "test-validation-nonce",
+            "registry_version": VALIDATION_REGISTRY_VERSION,
             "registry_sha256": validation_registry_digest(
                 REQUIRED_VALIDATION_CHECKS),
             "checks": [{"check": name, "status": "passed"}
@@ -188,6 +192,31 @@ class PipelineTest(unittest.TestCase):
         (manifests / "validation_status.jsonl").write_text(
             json.dumps(status) + "\n", encoding="utf-8")
         self.pipeline.record_validation(delivery)
+
+    def validation_tree(self, nonce="test-validation-nonce", checks=None):
+        state = json.loads((self.workspace / "workflow.json").read_text())
+        delivery = self.base / ("validation-" + str(uuid4()))
+        manifests = delivery / "manifests"
+        evidence = delivery / "validation_evidence" / state["task_id"]
+        manifests.mkdir(parents=True)
+        evidence.mkdir(parents=True)
+        (evidence / "report.json").write_text("{}", encoding="utf-8")
+        checks = checks if checks is not None else [
+            {"check": name, "status": "passed"}
+            for name in sorted(REQUIRED_VALIDATION_CHECKS)]
+        row = {
+            "task_id": state["task_id"],
+            "validator": "pipeline/validate.py (programmatic self-check)",
+            "validator_sha256": _sha256(Path(__file__).with_name("validate.py")),
+            "validation_run_nonce": nonce,
+            "registry_version": VALIDATION_REGISTRY_VERSION,
+            "registry_sha256": validation_registry_digest(
+                REQUIRED_VALIDATION_CHECKS),
+            "checks": checks,
+        }
+        (manifests / "validation_status.jsonl").write_text(
+            json.dumps(row) + "\n", encoding="utf-8")
+        return delivery
 
     def build_to_rubric(self):
         self.do_gold()
@@ -698,6 +727,7 @@ class PipelineTest(unittest.TestCase):
             "validator": "pipeline/validate.py (programmatic self-check)",
             "validator_sha256": _sha256(Path(__file__).with_name("validate.py")),
             "validation_run_nonce": "test-validation-nonce",
+            "registry_version": VALIDATION_REGISTRY_VERSION,
             "registry_sha256": validation_registry_digest(
                 REQUIRED_VALIDATION_CHECKS),
             "checks": [{"check": name,
@@ -710,6 +740,84 @@ class PipelineTest(unittest.TestCase):
         with self.assertRaises(PipelineError) as caught:
             self.pipeline.record_validation(delivery)
         self.assertIn("not_run", str(caught.exception))
+
+    def test_record_validation_runs_fixed_validator(self):
+        self.build_to_rubric()
+        self.pipeline.record_validation(self.validation_tree())
+        self.fixed_validator.assert_called_once()
+
+    def test_fixed_validator_entrypoint_invokes_validate_with_fresh_nonce(self):
+        completed = mock.Mock(returncode=0, stdout="complete", stderr="")
+        with mock.patch("orchestrator.subprocess.run", return_value=completed) as run:
+            execution = RUN_FIXED_VALIDATOR(self.pipeline, self.base / "delivery")
+        args, kwargs = run.call_args
+        self.assertEqual(Path(args[0][1]).name, "validate.py")
+        self.assertEqual(kwargs["env"]["GDPVAL_TASK_ID"],
+                         self.pipeline._load()["task_id"])
+        self.assertEqual(kwargs["env"]["GDPVAL_VALIDATOR_ORCHESTRATED"], "1")
+        self.assertEqual(kwargs["env"]["GDPVAL_VALIDATION_NONCE"],
+                         execution["nonce"])
+        self.assertTrue(execution["orchestrated"])
+
+    def test_preexisting_all_green_record_needs_fresh_nonce(self):
+        self.build_to_rubric()
+        delivery = self.validation_tree(nonce="forged-all-green")
+        with self.assertRaises(PipelineError) as caught:
+            self.pipeline.record_validation(delivery)
+        self.assertIn("fixed-validator run", str(caught.exception))
+
+    def test_validation_record_without_nonce_is_rejected(self):
+        self.build_to_rubric()
+        delivery = self.validation_tree(nonce=None)
+        with self.assertRaises(PipelineError) as caught:
+            self.pipeline.record_validation(delivery)
+        self.assertIn("fixed-validator run", str(caught.exception))
+
+    def test_validation_registry_rejects_unexpected_check(self):
+        self.build_to_rubric()
+        checks = [{"check": name, "status": "passed"}
+                  for name in sorted(REQUIRED_VALIDATION_CHECKS)]
+        checks.append({"check": "made_up_green_check", "status": "passed"})
+        delivery = self.validation_tree(checks=checks)
+        with self.assertRaises(PipelineError) as caught:
+            self.pipeline.record_validation(delivery)
+        self.assertIn("unexpected=['made_up_green_check']", str(caught.exception))
+
+    def test_validation_registry_rejects_duplicate_check(self):
+        self.build_to_rubric()
+        checks = [{"check": name, "status": "passed"}
+                  for name in sorted(REQUIRED_VALIDATION_CHECKS)]
+        checks.append(dict(checks[0]))
+        delivery = self.validation_tree(checks=checks)
+        with self.assertRaises(PipelineError) as caught:
+            self.pipeline.record_validation(delivery)
+        self.assertIn("duplicate", str(caught.exception))
+
+    def test_fixed_validator_crash_is_rejected(self):
+        self.build_to_rubric()
+        self.fixed_validator.return_value = {
+            "nonce": "test-validation-nonce", "returncode": 2,
+            "stdout": "", "stderr": "validator crashed",
+        }
+        with self.assertRaises(PipelineError) as caught:
+            self.pipeline.record_validation(self.validation_tree())
+        self.assertIn("exited 2", str(caught.exception))
+
+    def test_orchestrated_exit_one_without_completion_marker_is_rejected(self):
+        self.build_to_rubric()
+        checks = [{"check": name, "status": "passed"}
+                  for name in sorted(REQUIRED_VALIDATION_CHECKS)]
+        next(item for item in checks
+             if item["check"] == "human_review_final_review")["status"] = "not_run"
+        self.fixed_validator.return_value = {
+            "nonce": "test-validation-nonce", "returncode": 1,
+            "stdout": "", "stderr": "Traceback: late crash",
+            "orchestrated": True,
+        }
+        with self.assertRaises(PipelineError) as caught:
+            self.pipeline.record_validation(
+                self.validation_tree(checks=checks), stage="pre_final")
+        self.assertIn("completion marker", str(caught.exception))
 
     def test_human_review_requires_current_validation(self):
         self.build_to_rubric()

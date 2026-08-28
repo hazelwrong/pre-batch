@@ -21,6 +21,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID, uuid4
 
+from validation_registry import (
+    BASE_VALIDATION_CHECKS, VALIDATION_REGISTRY_VERSION,
+    expected_validation_checks, validation_registry_digest,
+)
+
 
 HERE = Path(__file__).resolve().parent
 # The role contracts and the tunable policy are single-sourced in 产线规范/.
@@ -42,11 +47,14 @@ GATE_INPUTS = {
         "references", "prompt", "gold", "lineage_draft", "expected_values",
         "verifier_report", "rubric", "general_review_receipt",
         "occupational_review_receipt", "review_remediation",
+        "general_supplemental_review_receipt",
+        "occupational_supplemental_review_receipt",
     ],
     "validation": ["references", "prompt", "gold", "lineage_draft",
                    "expected_values", "verifier_report", "rubric",
                    "general_review_receipt", "occupational_review_receipt",
-                   "review_remediation", "final_review_package",
+                   "review_remediation", "general_supplemental_review_receipt",
+                   "occupational_supplemental_review_receipt", "final_review_package",
                    "final_review_receipt"],
     "release": ["references", "prompt", "gold", "gold_provenance", "lineage_draft",
                 "solver_report", "verifier_report", "expected_values", "rubric",
@@ -56,42 +64,9 @@ GATE_OUTPUT = {
     "pre_final_validation": "pre_final_validation_evidence",
     "validation": "validation_evidence",
 }
-REQUIRED_VALIDATION_CHECKS = frozenset({
-    "tasks_jsonl_parses", "schema_12_fields", "task_id_uuid",
-    "bundle_uuid5_derivation", "path_convention", "files_exist_nonempty",
-    "release_state_and_list_parity", "rubric_json_parsable",
-    "rubric_total_100", "rubric_item_ids_unique_uuid",
-    "rubric_schema_fields", "rubric_author_type_truthful",
-    "rubric_adoption_complete", "sha256_matches_inventory",
-    "payload_files_all_declared", "delivery_tree_no_stray_files",
-    "manifest_present_coverage_manifest",
-    "manifest_present_provenance_manifest",
-    "manifest_present_source_inventory",
-    "manifest_present_file_inventory_sha256", "answer_leakage_scan",
-    "controlled_vocabulary_mapping_verified",
-    "controlled_vocabulary_english_strings",
-    "privacy_pii_scan", "copyright_scan", "malicious_content_scan",
-    "path_traversal_scan", "secret_key_scan",
-    "license_permits_delivery", "reference_file_formats",
-    "business_like_filenames", "office_metadata_stripped",
-    "rubric_required_field", "rubric_item_count",
-    "rubric_score_granularity", "rubric_pretty_format", "prompt_style",
-    "expert_rejection_recorded", "gold_not_full_marks",
-    "independence_claim_truthful", "template_guards_applicability",
-    "gold_matches_independent_recompute", "rubric_item_judgeability",
-    "gold_deliverable_eval", "gold_scored_against_threshold",
-    "gold_reconstruction_record", "gold_source_eligible",
-    "source_to_gold_lineage", "visual_render",
-    "review_narratives_not_stale", "post_adoption_corrections_confirmed",
-    "human_review_general_review", "human_review_occupational_expert_review",
-    "human_review_final_review", "provenance_covers_every_file",
-    "self_referential_manifest_hashes",
-})
-
-
-def validation_registry_digest(names):
-    raw = json.dumps(sorted(names), separators=(",", ":")).encode("utf-8")
-    return hashlib.sha256(raw).hexdigest()
+# Backward-compatible import surface for callers that build non-conditional
+# test records. Production validation uses expected_validation_checks(meta).
+REQUIRED_VALIDATION_CHECKS = BASE_VALIDATION_CHECKS
 ROLE_POLICY_SECTIONS = {
     "gold_curator": ("gold_source",),
     "task_designer": ("coverage", "reference_files"),
@@ -175,6 +150,58 @@ def _bundle_manifest(root):
     encoded = json.dumps(entries, ensure_ascii=False, sort_keys=True,
                          separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest(), entries
+
+
+def _review_payload_manifest(root, task_id):
+    """Return the stable task payload reviewed by the final reviewer.
+
+    Validation writes nonce-bearing evidence into the delivery tree.  That
+    evidence must be allowed to change after the final package is frozen, while
+    the task row and every declared reference/deliverable byte must not.
+    """
+    root = Path(root)
+    tasks_path = root / "tasks.jsonl"
+    if not tasks_path.is_file():
+        raise PipelineError("review payload is missing tasks.jsonl: %s" % tasks_path)
+    try:
+        rows = [json.loads(line) for line in
+                tasks_path.read_text(encoding="utf-8").splitlines()
+                if line.strip()]
+    except (OSError, ValueError) as exc:
+        raise PipelineError("review payload tasks.jsonl is invalid") from exc
+    matches = [row for row in rows if row.get("task_id") == task_id]
+    if len(matches) != 1:
+        raise PipelineError(
+            "review payload must contain exactly one task row for %s" % task_id)
+    row = matches[0]
+    entries = []
+    seen = set()
+    for field in ("reference_files", "deliverable_files"):
+        paths = row.get(field)
+        if not isinstance(paths, list):
+            raise PipelineError("review payload %s must be a list" % field)
+        for raw in paths:
+            rel = Path(str(raw))
+            normalized = rel.as_posix()
+            if rel.is_absolute() or ".." in rel.parts or normalized in seen:
+                raise PipelineError("review payload contains an unsafe or duplicate path: %s" % raw)
+            seen.add(normalized)
+            path = root / rel
+            if not path.is_file() or path.stat().st_size == 0:
+                raise PipelineError("review payload file is missing or empty: %s" % raw)
+            entries.append({
+                "kind": field, "path": normalized,
+                "sha256": _sha256(path), "bytes": path.stat().st_size,
+            })
+    return {"task_id": task_id, "task_record": row,
+            "files": sorted(entries, key=lambda item: (item["kind"], item["path"]))}
+
+
+def _review_payload_digest(root, task_id):
+    manifest = _review_payload_manifest(root, task_id)
+    encoded = json.dumps(manifest, ensure_ascii=False, sort_keys=True,
+                         separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest(), manifest
 
 
 def _copy_sources(sources, destination):
@@ -955,6 +982,7 @@ class Pipeline:
             "GDPVAL_TASK_ID": self._load()["task_id"],
             "GDPVAL_VALIDATE_TASK_ID": self._load()["task_id"],
             "GDPVAL_VALIDATION_NONCE": nonce,
+            "GDPVAL_VALIDATOR_ORCHESTRATED": "1",
         })
         if tasks_root is not None:
             env["GDPVAL_TASKS"] = str(Path(tasks_root).resolve())
@@ -964,7 +992,24 @@ class Pipeline:
         return {
             "nonce": nonce, "returncode": proc.returncode,
             "stdout": proc.stdout, "stderr": proc.stderr,
+            "orchestrated": True,
         }
+
+    def _validation_task_meta(self, task_id, tasks_root=None):
+        root = (Path(tasks_root).resolve() if tasks_root is not None
+                else HERE.parent / "tasks")
+        path = root / task_id / "task_meta.json"
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            # The fixed validator itself requires task_meta.json and cannot
+            # produce a fresh nonce-bearing record without it. Keeping the
+            # base registry here also supports isolated orchestrator tests that
+            # replace the subprocess with a deterministic fixture.
+            return {}
+        if not isinstance(value, dict):
+            raise PipelineError("validation task metadata must be a JSON object: %s" % path)
+        return value
 
     def record_validation(self, delivery_root, stage="final", tasks_root=None):
         """Register validator evidence for the pre-final or final gate.
@@ -1017,14 +1062,24 @@ class Pipeline:
         names = [item.get("check") for item in record["checks"]]
         if any(not name for name in names) or len(names) != len(set(names)):
             raise PipelineError("validation record has missing or duplicate check names")
-        missing_checks = sorted(REQUIRED_VALIDATION_CHECKS - set(names))
-        if missing_checks:
+        task_meta = self._validation_task_meta(state["task_id"], tasks_root)
+        expected_checks = expected_validation_checks(task_meta)
+        missing_checks = sorted(expected_checks - set(names))
+        unexpected_checks = sorted(set(names) - expected_checks)
+        if missing_checks or unexpected_checks:
             raise PipelineError(
-                "validation record is incomplete; missing fixed checks: %s" %
-                ", ".join(missing_checks))
+                "validation record is incomplete or incompatible with the fixed "
+                "registry; missing=%s unexpected=%s" %
+                (missing_checks, unexpected_checks))
         if record.get("validator_sha256") != _sha256(HERE / "validate.py"):
             raise PipelineError("validation record does not bind the current fixed validator")
-        if record.get("registry_sha256") != validation_registry_digest(names):
+        registry_version = record.get("registry_version")
+        if (execution.get("orchestrated") and
+                registry_version != VALIDATION_REGISTRY_VERSION):
+            raise PipelineError("validation record registry version is missing or unsupported")
+        if registry_version not in (None, VALIDATION_REGISTRY_VERSION):
+            raise PipelineError("validation record registry version is unsupported")
+        if record.get("registry_sha256") != validation_registry_digest(expected_checks):
             raise PipelineError("validation record check registry digest is invalid")
         blocking = []
         for item in record["checks"]:
@@ -1040,21 +1095,32 @@ class Pipeline:
             summary = ", ".join("%s=%s" % (item.get("check"), item.get("status"))
                                 for item in blocking[:8])
             raise PipelineError("strict validation is not green: %s" % summary)
-        if stage == "final" and execution["returncode"] != 0:
+        allowed_returncodes = {0, 1} if stage == "pre_final" else {0}
+        if execution["returncode"] not in allowed_returncodes:
             raise PipelineError(
                 "fixed validator exited %s: %s" %
                 (execution["returncode"],
                  (execution["stderr"] or execution["stdout"]).strip()[-1000:]))
+        completion = "GDPVAL_VALIDATION_COMPLETE nonce=%s returncode=%s" % (
+            execution["nonce"], execution["returncode"])
+        if execution.get("orchestrated") and completion not in execution["stdout"]:
+            raise PipelineError(
+                "fixed validator did not emit its nonce-bound completion marker")
         evidence = delivery / "validation_evidence" / state["task_id"]
         if not evidence.is_dir() or not any(p.is_file() for p in evidence.rglob("*")):
             raise PipelineError("validation evidence is empty: %s" % evidence)
         gate_id = str(uuid4())
         delivery_digest, delivery_files = _bundle_manifest(delivery)
+        review_payload_digest = None
+        if cycle:
+            review_payload_digest, _review_payload = _review_payload_digest(
+                delivery, state["task_id"])
         if cycle and stage == "final":
-            frozen_delivery = cycle["final"]["package"].get("delivery_digest")
-            if delivery_digest != frozen_delivery:
+            frozen_payload = cycle["final"]["package"].get(
+                "review_payload_digest")
+            if not frozen_payload or review_payload_digest != frozen_payload:
                 raise PipelineError(
-                    "delivery changed after the final-review package was frozen")
+                    "reviewed task payload changed after the final-review package was frozen")
         gate_root = self.root / "gates" / gate_name / gate_id
         gate_root.mkdir(parents=True)
         (gate_root / "validation_status.json").write_text(
@@ -1072,6 +1138,7 @@ class Pipeline:
             "input_artifacts": input_artifacts,
             "stage": stage,
             "delivery_digest": delivery_digest,
+            "review_payload_digest": review_payload_digest,
             "delivery_file_count": len(delivery_files),
             "output_artifacts": {output_category: artifact["digest"]},
             "logs": gate_root.relative_to(self.root).as_posix(),
@@ -1217,11 +1284,17 @@ class Pipeline:
             raise PipelineError("H-REG requires all three returned XLSX receipts")
         ordered = [receipts["general_review"],
                    receipts["occupational_expert_review"], final]
-        if any(item.get("verdict") != "Pass" for item in ordered):
+        if any(item.get("release_verdict", item.get("verdict")) != "Pass"
+               for item in ordered):
             raise PipelineError("H-REG requires Pass from all three review layers")
         names = [item["reviewer_id"] for item in ordered]
         if len(set(names)) != 3:
             raise PipelineError("H-REG requires three distinct reviewers")
+        remediation_rounds = list(cycle.get("remediation_history") or [])
+        remediation_rounds.append(cycle["remediation"])
+        supplemental_receipts = [value for remediation in remediation_rounds
+                                 for value in
+                                 (remediation.get("supplemental_receipts") or {}).values()]
         record = {
             "schema_version": "staged-xlsx-v1",
             "task_id": state["task_id"],
@@ -1231,13 +1304,18 @@ class Pipeline:
                 "layer": layer,
                 "reviewer_id": item["reviewer_id"],
                 "reviewed_at": item["reviewed_at"],
-                "verdict": item["verdict"],
+                "verdict": item.get("release_verdict", item["verdict"]),
                 "source_receipt_sha256": item["source_receipt_sha256"],
                 "transcription_sha256": item["transcription_sha256"],
+                "supplemental_receipts": [value["source_receipt_sha256"]
+                                          for value in supplemental_receipts
+                                          if value.get("reviewer_id") == item["reviewer_id"]],
             } for layer, item in zip(
                 ("general_review", "occupational_expert_review", "final_review"),
                 ordered)],
             "remediation_artifact_digest": cycle["remediation"]["artifact_digest"],
+            "remediation_artifact_digests": [item["artifact_digest"]
+                                             for item in remediation_rounds],
             "validation_gate_id": state["gates"]["validation"]["gate_id"],
             "validation_evidence_digest": state["artifacts"][
                 "validation_evidence"]["digest"],
@@ -1254,7 +1332,9 @@ class Pipeline:
         basis_names = list(GATE_INPUTS["release"])
         basis_names.extend(
             ["general_review_receipt", "occupational_review_receipt",
-             "review_remediation", "final_review_package", "final_review_receipt"])
+             "review_remediation", "general_supplemental_review_receipt",
+             "occupational_supplemental_review_receipt",
+             "final_review_package", "final_review_receipt"])
         state["human_review"] = {
             "status": "passed", "recorded_at": _now(),
             "review_cycle_id": cycle["cycle_id"],

@@ -33,7 +33,9 @@ for (const sheet of workbook.worksheets.items) {
     scale: 1.25,
     format: "png",
   });
-  const filename = `${sheet.name.replace(/[^A-Za-z0-9_-]+/g, "_")}.png`;
+  const index = String(report.sheets.length + 1).padStart(2, "0");
+  const safeName = sheet.name.replace(/[^A-Za-z0-9_-]+/g, "_");
+  const filename = `${index}-${safeName}.png`;
   await fs.writeFile(path.join(renderDir, filename),
     new Uint8Array(await rendered.arrayBuffer()));
   report.sheets.push({ name: sheet.name, range: address,

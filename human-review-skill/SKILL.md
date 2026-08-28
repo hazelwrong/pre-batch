@@ -41,11 +41,16 @@ source of truth; do not invent a parallel policy in prompts or scripts.
    kit. The general reviewer and occupational expert each return exactly one
    XLSX; ingest both original files immutably with SHA-256 and keep project-side
    identity/time/credential transcription separate.
-6. Close findings, run pre-final validation, and only then generate the final
+6. Normalize findings, non-Pass verdicts, conditional occupation mappings and
+   Rubric Revise/Reject decisions into one remediation ledger. If confirmation
+   is needed, send one changed-items-only XLSX to the affected original reviewer
+   and carry unchanged decisions forward. Never require an invented objection.
+7. Close findings and supplemental confirmations, run pre-final validation,
+   and only then generate the final
    reviewer package. The third reviewer returns one XLSX and must complete it
    strictly later than both first-layer reviews, all closure times, validation
    and final-package freeze.
-7. Run strict final validation after the final receipt. Register H-REG from the
+8. Run strict final validation after the final receipt. Register H-REG from the
    staged receipts after validation, then package twice and compare SHA-256.
 
 ## Useful commands
@@ -57,6 +62,9 @@ python3 pipeline/orchestrator.py status workbench/<task_id>
 python3 pipeline/review_kits.py phase1 \
   workbench/<task_id> delivery outputs/<task_id> \
   --tasks-root tasks --staging-root staging \
+  --node <bundled-node> --node-modules <bundled-node_modules>
+python3 pipeline/review_kits.py supplemental \
+  workbench/<task_id> delivery outputs/<task_id> --tasks-root tasks \
   --node <bundled-node> --node-modules <bundled-node_modules>
 python3 pipeline/orchestrator.py record-validation \
   workbench/<task_id> delivery --stage final
@@ -70,4 +78,5 @@ routing, human-review timing rule, and release invariants. Read
 When a user supplies a historical review bundle, asks what upstream must
 prepare, or the input layout is not pipeline-native, read
 `references/review-input-contract.md` and normalize the package before any
-review or signature is recorded.
+review or signature is recorded. Enforce the adjacent
+`references/review-input.schema.json`; prose alone is not release evidence.

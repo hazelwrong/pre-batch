@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/hazelwrong/GDPval-Pipeline/review-input.schema.json",
+  "title": "GDPval staged human-review input",
+  "type": "object",
+  "required": ["schema_version", "task", "files", "deliverable_sources", "reference_sources", "rights", "occupation_standard", "expert_profiles", "review_layers"],
+  "properties": {
+    "schema_version": {"const": "review-input-v1"},
+    "task": {
+      "type": "object",
+      "required": ["task_id", "task_name", "sector", "occupation", "language", "current_version", "rubric_version", "basis_digest"]
+    },
+    "files": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["scope", "path", "bytes", "sha256"]
+      }
+    },
+    "deliverable_sources": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["path", "filename", "source_url", "source_sha256", "current_sha256", "source_type", "rights_holder", "license", "acquired_at", "transformation_record"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1},
+          "filename": {"type": "string", "minLength": 1},
+          "source_url": {"type": "string", "format": "uri"},
+          "source_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "current_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "source_type": {"type": "string", "minLength": 1},
+          "rights_holder": {"type": "string", "minLength": 1},
+          "license": {"type": "string", "minLength": 1},
+          "acquired_at": {"type": "string", "minLength": 1},
+          "transformation_record": {"const": "none; exact source bytes"}
+        }
+      }
+    },
+    "reference_sources": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "oneOf": [
+          {
+            "required": ["adopted", "rejection_reason"],
+            "properties": {"adopted": {"const": false}, "rejection_reason": {"type": "string", "minLength": 1}}
+          },
+          {
+            "required": ["source_id", "source_type", "description", "source_url", "license"],
+            "properties": {
+              "adopted": {"not": {"const": false}},
+              "source_type": {"not": {"const": "synthetic"}},
+              "source_url": {"type": "string", "format": "uri"}
+            },
+            "allOf": [{
+              "if": {"properties": {"source_type": {"const": "desensitization"}}, "required": ["source_type"]},
+              "then": {"required": ["transformation_record"], "properties": {"transformation_record": {"type": "string", "minLength": 1}}},
+              "else": {"not": {"required": ["transformation_record"]}}
+            }]
+          }
+        ]
+      }
+    },
+    "rights": {
+      "type": "object",
+      "required": ["rights_holder", "license", "usage_scope", "authorization", "usage_boundaries"]
+    },
+    "occupation_standard": {"type": "object", "required": ["digest"]},
+    "expert_profiles": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "required": ["expert_id", "alias", "expert_role", "review_layer", "required_industry", "required_occupation", "review_scope", "expert_profile", "strengths", "first_thought"]
+      }
+    },
+    "review_layers": {"type": "object"}
+  },
+  "additionalProperties": false
+}
