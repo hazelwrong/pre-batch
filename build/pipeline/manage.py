@@ -331,8 +331,47 @@ def plan_next(workbench_root=DEFAULT_WORKBENCH, slots=4,
         outstanding = [role for role in order
                        if role != HUMAN_ROLE and not current.get(role)]
         if not outstanding:
-            complete.append({"task_id": state["task_id"],
-                             "workspace": str(workspace)})
+            cycle = state.get("review_cycle")
+            stage = ((cycle or {}).get("status") or
+                     "phase1_review_kit_required")
+            if stage == "release_ready":
+                complete.append({"task_id": state["task_id"],
+                                 "workspace": str(workspace),
+                                 "status": "release_ready"})
+                continue
+            actions = {
+                "phase1_review_kit_required": ["create_phase1_review_kit"],
+                "awaiting_phase1_reviews": [
+                    "collect_general_review_xlsx",
+                    "collect_occupational_expert_review_xlsx"],
+                "phase1_review_failed": [
+                    "apply_phase1_findings_then_create_new_phase1_review_kit"],
+                "remediation_required": ["apply_findings_and_record_remediation"],
+                "pre_final_validation_required": ["run_pre_final_validation"],
+                "final_review_kit_required": ["create_final_review_kit"],
+                "awaiting_final_review": ["collect_final_review_xlsx"],
+                "final_review_failed": [
+                    "apply_final_findings_then_repeat_pre_final_validation"],
+                "final_review_complete": ["run_strict_final_validation"],
+                "hreg_required": ["register_human_review_evidence"],
+            }.get(stage, ["inspect_review_cycle"])
+            awaiting_human.append({
+                "task_id": state["task_id"],
+                "workspace": str(workspace),
+                "status": stage,
+                "role": "human_review_cycle",
+                "role_id": "H01-H03",
+                "role_name": "分阶段真人审核",
+                "model_tier": "L0",
+                "model": None,
+                "thinking": None,
+                "required_inputs": [],
+                "missing_inputs": [],
+                "required_outputs": actions,
+                "failure_routes": [],
+                "parallel_external_actions": actions if stage ==
+                "awaiting_phase1_reviews" else [],
+            })
             continue
         ready = []
         for role in outstanding:

@@ -37,9 +37,16 @@ source of truth; do not invent a parallel policy in prompts or scripts.
    not a release gate.
 4. On failure, use the declared `reason_code`. Rebuild the earliest routed role
    and all stale descendants; never hand-edit stale status back to current.
-5. Run strict validation only after all three human-review layers and closure
-   evidence are present. Register H-REG after validation, then package twice and
-   compare SHA-256 values.
+5. After production, create one candidate delivery ZIP and one phase-1 review
+   kit. The general reviewer and occupational expert each return exactly one
+   XLSX; ingest both original files immutably with SHA-256 and keep project-side
+   identity/time/credential transcription separate.
+6. Close findings, run pre-final validation, and only then generate the final
+   reviewer package. The third reviewer returns one XLSX and must complete it
+   strictly later than both first-layer reviews, all closure times, validation
+   and final-package freeze.
+7. Run strict final validation after the final receipt. Register H-REG from the
+   staged receipts after validation, then package twice and compare SHA-256.
 
 ## Useful commands
 
@@ -47,11 +54,20 @@ source of truth; do not invent a parallel policy in prompts or scripts.
 cd build
 python3 pipeline/manage.py next workbench --slots 4 --json
 python3 pipeline/orchestrator.py status workbench/<task_id>
+python3 pipeline/review_kits.py phase1 \
+  workbench/<task_id> delivery outputs/<task_id> \
+  --tasks-root tasks --staging-root staging \
+  --node <bundled-node> --node-modules <bundled-node_modules>
 python3 pipeline/orchestrator.py record-validation \
-  workbench/<task_id> delivery
+  workbench/<task_id> delivery --stage final
 python3 pipeline/orchestrator.py record-human-review \
-  workbench/<task_id> <human_review_record.json>
+  workbench/<task_id>
 ```
 
 Read `产线规范/pipeline设计.md` for the full role isolation matrix, rework
-routing, human-review timing rule, and release invariants.
+routing, human-review timing rule, and release invariants. Read
+`产线规范/人工复核包规范.md` before generating or ingesting review workbooks.
+When a user supplies a historical review bundle, asks what upstream must
+prepare, or the input layout is not pipeline-native, read
+`references/review-input-contract.md` and normalize the package before any
+review or signature is recorded.

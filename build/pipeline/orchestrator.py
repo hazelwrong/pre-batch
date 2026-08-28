@@ -15,6 +15,7 @@ import os
 import random
 import re
 import shutil
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -32,15 +33,65 @@ STATE_FILE = "workflow.json"
 DECISIONS = {"passed", "failed", "rework"}
 PRODUCTION_ROLES = ["gold_curator", "task_designer", "prompt_author", "solver",
                     "verifier", "rubric"]
-GATE_REQUIREMENTS = {"validation": PRODUCTION_ROLES}
+GATE_REQUIREMENTS = {
+    "pre_final_validation": PRODUCTION_ROLES,
+    "validation": PRODUCTION_ROLES,
+}
 GATE_INPUTS = {
+    "pre_final_validation": [
+        "references", "prompt", "gold", "lineage_draft", "expected_values",
+        "verifier_report", "rubric", "general_review_receipt",
+        "occupational_review_receipt", "review_remediation",
+    ],
     "validation": ["references", "prompt", "gold", "lineage_draft",
-                   "expected_values", "verifier_report", "rubric"],
+                   "expected_values", "verifier_report", "rubric",
+                   "general_review_receipt", "occupational_review_receipt",
+                   "review_remediation", "final_review_package",
+                   "final_review_receipt"],
     "release": ["references", "prompt", "gold", "gold_provenance", "lineage_draft",
                 "solver_report", "verifier_report", "expected_values", "rubric",
                 "human_review_record", "validation_evidence"],
 }
-GATE_OUTPUT = {"validation": "validation_evidence"}
+GATE_OUTPUT = {
+    "pre_final_validation": "pre_final_validation_evidence",
+    "validation": "validation_evidence",
+}
+REQUIRED_VALIDATION_CHECKS = frozenset({
+    "tasks_jsonl_parses", "schema_12_fields", "task_id_uuid",
+    "bundle_uuid5_derivation", "path_convention", "files_exist_nonempty",
+    "release_state_and_list_parity", "rubric_json_parsable",
+    "rubric_total_100", "rubric_item_ids_unique_uuid",
+    "rubric_schema_fields", "rubric_author_type_truthful",
+    "rubric_adoption_complete", "sha256_matches_inventory",
+    "payload_files_all_declared", "delivery_tree_no_stray_files",
+    "manifest_present_coverage_manifest",
+    "manifest_present_provenance_manifest",
+    "manifest_present_source_inventory",
+    "manifest_present_file_inventory_sha256", "answer_leakage_scan",
+    "controlled_vocabulary_mapping_verified",
+    "controlled_vocabulary_english_strings",
+    "privacy_pii_scan", "copyright_scan", "malicious_content_scan",
+    "path_traversal_scan", "secret_key_scan",
+    "license_permits_delivery", "reference_file_formats",
+    "business_like_filenames", "office_metadata_stripped",
+    "rubric_required_field", "rubric_item_count",
+    "rubric_score_granularity", "rubric_pretty_format", "prompt_style",
+    "expert_rejection_recorded", "gold_not_full_marks",
+    "independence_claim_truthful", "template_guards_applicability",
+    "gold_matches_independent_recompute", "rubric_item_judgeability",
+    "gold_deliverable_eval", "gold_scored_against_threshold",
+    "gold_reconstruction_record", "gold_source_eligible",
+    "source_to_gold_lineage", "visual_render",
+    "review_narratives_not_stale", "post_adoption_corrections_confirmed",
+    "human_review_general_review", "human_review_occupational_expert_review",
+    "human_review_final_review", "provenance_covers_every_file",
+    "self_referential_manifest_hashes",
+})
+
+
+def validation_registry_digest(names):
+    raw = json.dumps(sorted(names), separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
 ROLE_POLICY_SECTIONS = {
     "gold_curator": ("gold_source",),
     "task_designer": ("coverage", "reference_files"),
@@ -220,6 +271,7 @@ class Pipeline:
             "artifacts": {},
             "runs": [],
             "gates": {},
+            "review_cycle": None,
             "human_review": None,
             "invalidated_roles": {},
         })
@@ -895,15 +947,59 @@ class Pipeline:
         self._save(state)
         return run
 
-    def record_validation(self, delivery_root):
-        """Register strict validator evidence; callers cannot assert a pass."""
+    def _run_fixed_validator(self, delivery, tasks_root=None):
+        nonce = str(uuid4())
+        env = dict(os.environ)
+        env.update({
+            "GDPVAL_DELIVERY": str(delivery),
+            "GDPVAL_TASK_ID": self._load()["task_id"],
+            "GDPVAL_VALIDATE_TASK_ID": self._load()["task_id"],
+            "GDPVAL_VALIDATION_NONCE": nonce,
+        })
+        if tasks_root is not None:
+            env["GDPVAL_TASKS"] = str(Path(tasks_root).resolve())
+        proc = subprocess.run(
+            [sys.executable, str(HERE / "validate.py")],
+            cwd=str(HERE.parent), env=env, capture_output=True, text=True)
+        return {
+            "nonce": nonce, "returncode": proc.returncode,
+            "stdout": proc.stdout, "stderr": proc.stderr,
+        }
+
+    def record_validation(self, delivery_root, stage="final", tasks_root=None):
+        """Register validator evidence for the pre-final or final gate.
+
+        Pre-final validation may leave exactly the final-review layer ``not_run``;
+        every other check must pass.  Final validation runs only after the final
+        returned XLSX has been ingested and permits no non-passed status.
+        """
+        gate_name = ("pre_final_validation" if stage == "pre_final" else
+                     "validation" if stage == "final" else None)
+        if gate_name is None:
+            raise PipelineError("validation stage must be pre_final or final")
         state = self._load()
-        missing = [role for role in GATE_REQUIREMENTS["validation"]
+        missing = [role for role in GATE_REQUIREMENTS[gate_name]
                    if not self._current_run(state, role)]
         if missing:
             raise PipelineError("validation requires current roles: %s" %
                                 ", ".join(missing))
+        cycle = state.get("review_cycle")
+        if cycle:
+            if stage == "pre_final":
+                if cycle.get("status") != "pre_final_validation_required" or \
+                        not cycle.get("remediation"):
+                    raise PipelineError(
+                        "pre-final validation requires two passing first-layer "
+                        "receipts and current remediation closure")
+            else:
+                final_receipt = (cycle.get("final") or {}).get("receipt")
+                if cycle.get("status") != "final_review_complete" or \
+                        not final_receipt or final_receipt.get("verdict") != "Pass":
+                    raise PipelineError(
+                        "final strict validation requires a passing returned "
+                        "final-review XLSX")
         delivery = Path(delivery_root).resolve()
+        execution = self._run_fixed_validator(delivery, tasks_root)
         status_path = delivery / "manifests" / "validation_status.jsonl"
         if not status_path.is_file():
             raise PipelineError("validation status is missing: %s" % status_path)
@@ -914,34 +1010,84 @@ class Pipeline:
                        if item.get("task_id") == state["task_id"]), None)
         if not record or not record.get("checks"):
             raise PipelineError("no validation record for task %s" % state["task_id"])
-        blocking = [item for item in record["checks"]
-                    if item.get("status") != "passed"]
+        if record.get("validation_run_nonce") != execution["nonce"]:
+            raise PipelineError("validation status was not produced by this fixed-validator run")
+        if "pipeline/validate.py" not in str(record.get("validator") or ""):
+            raise PipelineError("validation record is not attributed to the fixed validator")
+        names = [item.get("check") for item in record["checks"]]
+        if any(not name for name in names) or len(names) != len(set(names)):
+            raise PipelineError("validation record has missing or duplicate check names")
+        missing_checks = sorted(REQUIRED_VALIDATION_CHECKS - set(names))
+        if missing_checks:
+            raise PipelineError(
+                "validation record is incomplete; missing fixed checks: %s" %
+                ", ".join(missing_checks))
+        if record.get("validator_sha256") != _sha256(HERE / "validate.py"):
+            raise PipelineError("validation record does not bind the current fixed validator")
+        if record.get("registry_sha256") != validation_registry_digest(names):
+            raise PipelineError("validation record check registry digest is invalid")
+        blocking = []
+        for item in record["checks"]:
+            if item.get("status") == "passed":
+                continue
+            allowed_pre_final = (
+                stage == "pre_final" and
+                item.get("check") == "human_review_final_review" and
+                item.get("status") == "not_run")
+            if not allowed_pre_final:
+                blocking.append(item)
         if blocking:
             summary = ", ".join("%s=%s" % (item.get("check"), item.get("status"))
                                 for item in blocking[:8])
             raise PipelineError("strict validation is not green: %s" % summary)
+        if stage == "final" and execution["returncode"] != 0:
+            raise PipelineError(
+                "fixed validator exited %s: %s" %
+                (execution["returncode"],
+                 (execution["stderr"] or execution["stdout"]).strip()[-1000:]))
         evidence = delivery / "validation_evidence" / state["task_id"]
         if not evidence.is_dir() or not any(p.is_file() for p in evidence.rglob("*")):
             raise PipelineError("validation evidence is empty: %s" % evidence)
         gate_id = str(uuid4())
-        gate_root = self.root / "gates" / "validation" / gate_id
+        delivery_digest, delivery_files = _bundle_manifest(delivery)
+        if cycle and stage == "final":
+            frozen_delivery = cycle["final"]["package"].get("delivery_digest")
+            if delivery_digest != frozen_delivery:
+                raise PipelineError(
+                    "delivery changed after the final-review package was frozen")
+        gate_root = self.root / "gates" / gate_name / gate_id
         gate_root.mkdir(parents=True)
         (gate_root / "validation_status.json").write_text(
             json.dumps(record, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         input_artifacts = {name: state["artifacts"][name]["digest"]
-                           for name in GATE_INPUTS["validation"]
+                           for name in GATE_INPUTS[gate_name]
                            if name in state["artifacts"]}
-        artifact = self.add_artifact("validation_evidence", [evidence],
+        output_category = GATE_OUTPUT[gate_name]
+        artifact = self.add_artifact(output_category, [evidence],
                                      "gate:" + gate_id)
         state = self._load()
         gate_record = {
             "gate_id": gate_id, "status": "passed", "run_at": _now(),
             "source": str(status_path),
             "input_artifacts": input_artifacts,
-            "output_artifacts": {"validation_evidence": artifact["digest"]},
+            "stage": stage,
+            "delivery_digest": delivery_digest,
+            "delivery_file_count": len(delivery_files),
+            "output_artifacts": {output_category: artifact["digest"]},
             "logs": gate_root.relative_to(self.root).as_posix(),
         }
-        state["gates"]["validation"] = gate_record
+        state["gates"][gate_name] = gate_record
+        if cycle:
+            state["review_cycle"] = cycle
+            if stage == "pre_final":
+                state["review_cycle"]["pre_final_validation"] = {
+                    "status": "passed", "gate_id": gate_id,
+                    "run_at": gate_record["run_at"],
+                    "evidence_digest": artifact["digest"],
+                }
+                state["review_cycle"]["status"] = "final_review_kit_required"
+            else:
+                state["review_cycle"]["status"] = "hreg_required"
         self._save(state)
         return gate_record
 
@@ -1057,15 +1203,89 @@ class Pipeline:
         if expected_claim and record.get("independence_statement") != expected_claim:
             raise PipelineError("human review independence_statement must match policy")
 
-    def record_human_review(self, record_path):
+    def _record_staged_human_review(self, state):
+        cycle = state.get("review_cycle") or {}
+        if cycle.get("status") != "hreg_required":
+            raise PipelineError(
+                "H-REG requires final review and a current final validation gate")
+        if not self._gate_is_current(state, "validation"):
+            raise PipelineError("H-REG requires a current final validation gate")
+        receipts = (cycle.get("phase1") or {}).get("receipts") or {}
+        final = (cycle.get("final") or {}).get("receipt")
+        if not all(receipts.get(layer) for layer in
+                   ("general_review", "occupational_expert_review")) or not final:
+            raise PipelineError("H-REG requires all three returned XLSX receipts")
+        ordered = [receipts["general_review"],
+                   receipts["occupational_expert_review"], final]
+        if any(item.get("verdict") != "Pass" for item in ordered):
+            raise PipelineError("H-REG requires Pass from all three review layers")
+        names = [item["reviewer_id"] for item in ordered]
+        if len(set(names)) != 3:
+            raise PipelineError("H-REG requires three distinct reviewers")
+        record = {
+            "schema_version": "staged-xlsx-v1",
+            "task_id": state["task_id"],
+            "cycle_id": cycle["cycle_id"],
+            "record_type": "project transcription of immutable reviewer receipts",
+            "layers": [{
+                "layer": layer,
+                "reviewer_id": item["reviewer_id"],
+                "reviewed_at": item["reviewed_at"],
+                "verdict": item["verdict"],
+                "source_receipt_sha256": item["source_receipt_sha256"],
+                "transcription_sha256": item["transcription_sha256"],
+            } for layer, item in zip(
+                ("general_review", "occupational_expert_review", "final_review"),
+                ordered)],
+            "remediation_artifact_digest": cycle["remediation"]["artifact_digest"],
+            "validation_gate_id": state["gates"]["validation"]["gate_id"],
+            "validation_evidence_digest": state["artifacts"][
+                "validation_evidence"]["digest"],
+            "independence_statement": ((self.policy.get("human_review") or {})
+                                       .get("independence_claim")),
+        }
+        record_root = self.root / "gates" / "hreg" / str(uuid4())
+        record_root.mkdir(parents=True)
+        record_path = record_root / "human_review_record.json"
+        _write_json(record_path, record)
+        artifact = self.add_artifact(
+            "human_review_record", [record_path], "human-registration")
+        state = self._load()
+        basis_names = list(GATE_INPUTS["release"])
+        basis_names.extend(
+            ["general_review_receipt", "occupational_review_receipt",
+             "review_remediation", "final_review_package", "final_review_receipt"])
+        state["human_review"] = {
+            "status": "passed", "recorded_at": _now(),
+            "review_cycle_id": cycle["cycle_id"],
+            "validation_gate_id": state["gates"]["validation"]["gate_id"],
+            "artifact_digest": artifact["digest"],
+            "basis": {name: state["artifacts"][name]["digest"]
+                      for name in basis_names
+                      if name in state["artifacts"] and name != "human_review_record"},
+            "reviewers": names,
+        }
+        state["review_cycle"]["status"] = "release_ready"
+        self._save(state)
+        return state["human_review"]
+
+    def record_human_review(self, record_path=None):
         state = self._load()
         missing = [role for role in PRODUCTION_ROLES
                    if not self._current_run(state, role)]
         if missing:
             raise PipelineError("human review requires current roles: %s"
                                 % ", ".join(missing))
+        if state.get("review_cycle"):
+            if record_path is not None:
+                raise PipelineError(
+                    "staged review workspaces build H-REG from immutable receipts; "
+                    "do not supply an external combined record")
+            return self._record_staged_human_review(state)
         if not self._gate_is_current(state, "validation"):
             raise PipelineError("human review requires a current validation gate")
+        if record_path is None:
+            raise PipelineError("legacy human review requires a combined record path")
         record_path = Path(record_path).resolve()
         record = _read_json(record_path)
         self._validate_human_review(record, record_path.parent)
@@ -1148,6 +1368,12 @@ class Pipeline:
         review = state.get("human_review")
         if not review or review.get("status") != "passed":
             return False
+        cycle = state.get("review_cycle")
+        if cycle and (cycle.get("status") != "release_ready" or
+                      review.get("review_cycle_id") != cycle.get("cycle_id") or
+                      review.get("validation_gate_id") !=
+                      (state.get("gates", {}).get("validation") or {}).get("gate_id")):
+            return False
         current = state["artifacts"].get("human_review_record", {}).get("digest")
         if current != review.get("artifact_digest"):
             return False
@@ -1170,9 +1396,14 @@ class Pipeline:
         all_roles = all(roles.get(name) == "current" for name in PRODUCTION_ROLES)
         checks = gates["validation"] == "current"
         human = "current" if self._human_review_is_current(state) else "missing_or_stale"
+        cycle = state.get("review_cycle")
+        workflow_stage = (cycle.get("status") if cycle else
+                          "legacy_review_unstaged" if all_roles else
+                          "production")
         return {
             "task_id": state["task_id"], "roles": roles, "gates": gates,
             "human_review": human,
+            "workflow_stage": workflow_stage,
             "release_ready": all_roles and checks and human == "current",
         }
 
@@ -1211,9 +1442,12 @@ def main(argv=None):
                        help="register a strict validate.py result from a delivery tree")
     p.add_argument("workspace")
     p.add_argument("delivery")
-    p = sub.add_parser("record-human-review", help="register three independent human layers")
+    p.add_argument("--stage", choices=("pre_final", "final"), default="final")
+    p.add_argument("--tasks-root")
+    p = sub.add_parser("record-human-review",
+                       help="run H-REG from staged receipts, or register a legacy record")
     p.add_argument("workspace")
-    p.add_argument("record")
+    p.add_argument("record", nargs="?")
     p = sub.add_parser(
         "migrate-policy-scope",
         help="bind legacy runs to role-scoped policy after a verified policy change")
@@ -1241,7 +1475,8 @@ def main(argv=None):
             elif args.command == "submit":
                 result = pipeline.submit(args.run_id, args.decision, args.reason_code)
             elif args.command == "record-validation":
-                result = pipeline.record_validation(args.delivery)
+                result = pipeline.record_validation(
+                    args.delivery, args.stage, args.tasks_root)
             elif args.command == "record-human-review":
                 result = pipeline.record_human_review(args.record)
             elif args.command == "migrate-policy-scope":

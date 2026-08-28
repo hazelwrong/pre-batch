@@ -133,6 +133,8 @@ class ManageTest(unittest.TestCase):
         self.assertEqual([item["role"] for item in plan["wave"]], ["prompt_author"])
         item = plan["wave"][0]
         self.assertEqual(item["role_id"], "T12")
+        self.assertEqual(item["model"], "gpt-5.6-terra")
+        self.assertEqual(item["thinking"], "medium")
         self.assertIn("references", item["required_inputs"])
         self.assertTrue(all(value["mode"] == "read-only"
                             for value in item["readonly_inputs"]))
@@ -152,6 +154,9 @@ class ManageTest(unittest.TestCase):
         plan = plan_next(self.root, slots=3)
         self.assertEqual([item["role"] for item in plan["wave"]],
                          ["solver", "verifier"])
+        self.assertEqual(
+            [(item["model"], item["thinking"]) for item in plan["wave"]],
+            [("gpt-5.6-sol", "high"), ("gpt-5.6-terra", "high")])
         self.assertEqual(plan["queued_count"], 0)
 
     def test_changed_digest_rewinds_only_to_stale_role(self):

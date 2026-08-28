@@ -6,6 +6,7 @@ build/delivery/
 build/reports/
 build/*.zip
 build/**/gates/
+outputs/
 
 # Python/runtime noise
 __pycache__/

@@ -52,11 +52,11 @@ python3 pipeline/orchestrator.py record-validation \
 | 角色 | 类型 | 档位 | 默认模型/思考 |
 |---|---|---|---|
 | T10 Gold 登记 | `human_registration` | L0 | 人 + 固定脚本 |
-| T11 蓝图与输入设计 | judgment | L4 | Opus / high |
-| T12 Prompt | judgment | L2 | Sonnet / medium |
-| T13 冷解题 | independent judgment | L4 | Opus / high |
-| T14 冷复算 | independent judgment | L3 | Opus / medium；T12 后与 T13 并行 |
-| T15 Rubric | judgment | L3 | Opus / medium |
+| T11 蓝图与输入设计 | judgment | L4 | GPT-5.6 Sol / high |
+| T12 Prompt | judgment | L2 | GPT-5.6 Terra / medium |
+| T13 冷解题 | independent judgment | L4 | GPT-5.6 Sol / high |
+| T14 冷复算 | independent judgment | L3 | GPT-5.6 Terra / high；T12 后与 T13 并行 |
+| T15 Rubric | judgment | L3 | GPT-5.6 Terra / high |
 
 T10 不启动 LLM。它登记真实文件、许可、生产方式与变换记录，并通过技术预检；真实性交付无法用“再跑一次模型”修复。
 
@@ -98,11 +98,15 @@ T10 不启动 LLM。它登记真实文件、许可、生产方式与变换记录
 
 四个 slot 是全批次共享上限，不是每任务四个。调度优先填充不同任务的 ready 节点；单任务不会为了占满 slot 而越过 T11→T15 的依赖。
 
-## 6. 三层人审
+## 6. 两阶段、三层人审
 
-角色生产与 rubric 完成后进入三层真人审阅并写出证据文件。通用审查与职业专家审查可并行；两者的 finding 必须逐项记录 disposition、理由、证据文件与带时区 `closed_at`。第三位真人只在此后执行最终终审，其 `reviewed_at` 必须严格晚于前两层和全部 `closed_at`；相同时间戳不构成时间差。终审人不得代签职业专家的 rubric 采纳。
+角色生产与 rubric 完成后先冻结 `Candidate-Delivery-Package.zip`，并生成 `Phase-1-Human-Review-Kit.zip`。通用审查与职业专家审查可并行；每位审核人只返回一个 XLSX。职业专家在同一工作簿中完成职业映射、rubric 逐条采纳和 Gold 逐条评分，不再在 MD 与 TSV 间切换。
 
-证据绑定当前角色 artifact digest 与 rubric 版本；三位签署人必须不同，职业专家资质状态、实质驳回记录、逐条 gold 评分与取证位置必须齐全。资质附件可不提供，但此时必须登记 `credential_status=not_supplied`，不得暗示已经独立核验。上游或 rubric 改动后旧签字失效，并在 next wave 中回到最早责任节点。
+项目方从真实回执录入姓名、职务、带时区时间和资质状态，原始 XLSX 逐字节保留并登记 SHA-256。姓名、时间、资质不得由 pipeline 推断或补造；缺少资质证据时使用 `credential_status=not_supplied`。
+
+两份首审回执完成后，finding 必须逐项记录 disposition、理由、证据文件与带时区 `closed_at`。如确需原审核人补充确认，只复核发生变化的条目或文件，不重做全表。整改后运行 pre-final validation；它只允许终审层为 `not_run`。随后冻结终审包，第三位真人只返回一个 `Final-Review.xlsx`。终审时间必须严格晚于前两层、全部 `closed_at`、补充确认、pre-final validation 和终审包冻结时间；相同时间戳不构成时间差。
+
+证据绑定 review basis 与 rubric 版本；三位签署人必须不同，职业专家资质状态、逐条采纳/修改/拒绝、Gold 评分与取证位置必须齐全。不得强迫专家制造一条反对意见来证明认真审核。首审绑定 `initial_basis`，整改用 `from_basis_digest → to_basis_digest` 保留历史；后续变更只使实际依赖它的确认、validation 与 H-REG stale。
 
 ## 7. Strict final validation 与发布
 
@@ -116,7 +120,9 @@ T10 不启动 LLM。它登记真实文件、许可、生产方式与变换记录
 ```text
 T10 Gold 落地/登记与固定技术预检
 → T11–T15 角色生产
-→ 三层人审通过、写入证据且 gold 达阈值
+→ 首审两包并行回收
+→ finding 闭环 + pre-final validation
+→ 第三位真人终审
 → strict final validation：failed=0、not_run=0、stale=0
 → H-REG 登记既有人审记录并绑定 validation digest
 → 冻结 snapshot
@@ -124,13 +130,13 @@ T10 Gold 落地/登记与固定技术预检
 → 发布
 ```
 
-`run.py` 的发布路径要求显式提供 `GDPVAL_HUMAN_REVIEW_ROOT`（按任务号分目录）或 `GDPVAL_HUMAN_REVIEW_RECORDS`（任务号到记录路径的 JSON 映射）。它会在每个任务 validation 通过后执行 H-REG；没有该输入就停止归档，避免旧 validation digest 下的人审记录被误用。
+新式 staged workflow 的 `run.py` 直接从 review cycle 执行 H-REG；旧 workflow 才读取 `GDPVAL_HUMAN_REVIEW_ROOT` 或 `GDPVAL_HUMAN_REVIEW_RECORDS`。三份原始 XLSX、项目方录入、整改记录、终审包或 validation 任一发生变化，H-REG 都会失效。
 
 final validation 通过后执行 H-REG：`record-human-review` 把先前已完成的人审记录登记进 workflow，并将它绑定到当前 validation digest；H-REG 不是第二次审阅。任一任务未通过时禁止部分发布。workflow 的 `release_ready` 只由当前角色、strict final validation 与 H-REG 证据派生，不能由配置、人工布尔值或命令退出码直接设置；它仍不是最终发布收据。只有设置 `GDPVAL_ARCHIVE` 的实际发布路径才会核对批次内全部 workflow，并执行两次 zip 哈希比较。
 
 ## 8. 技术预检
 
-技术预检在 T10 尝试提交 `passed` 时由 orchestrator 固定执行，并将结构化证据写入该 run 的 `t10_preflight.json`：文件存在且非空、Office/PDF 元数据已剥离、无恶意内容、绝对/穿越路径和密钥，权利方、许可与用途字段齐全且无未解决 blocker。任一 check 失败就拒绝 T10 completion，T11 不会成为 ready；这样不会用 Opus 等待一个在入口即可发现的材料问题。
+技术预检在 T10 尝试提交 `passed` 时由 orchestrator 固定执行，并将结构化证据写入该 run 的 `t10_preflight.json`：文件存在且非空、Office/PDF 元数据已剥离、无恶意内容、绝对/穿越路径和密钥，权利方、许可与用途字段齐全且无未解决 blocker。任一 check 失败就拒绝 T10 completion，T11 不会成为 ready；这样不会让高推理模型等待一个在入口即可发现的材料问题。
 
 ## 9. 事实边界
 

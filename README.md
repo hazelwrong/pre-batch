@@ -7,7 +7,7 @@ real deliverables, reviewer records, workbench state, or generated archives.
 
 ## Layout
 
-- `build/pipeline/`: orchestrator, planner, assembler, builder, validator and tests
+- `build/pipeline/`: orchestrator, planner, assembler, review-kit builder, validator and tests
 - `产线规范/`: role contracts, policy, release invariants and Mermaid flowchart
 
 The runtime expects evaluator-only task data under `build/tasks/` and writes
@@ -25,9 +25,11 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -q \
   test_package.py
 ```
 
-The full validator test additionally depends on the local document/PDF
-runtime. The release path must run strict validation, human-review
-registration, and the deterministic two-archive hash check before publishing.
+The full validator and review-workbook render tests additionally depend on the
+bundled document/spreadsheet runtime. The release path is staged: two parallel
+first-layer XLSX reviews, remediation, pre-final validation, a later third-person
+final XLSX review, strict final validation, H-REG, then the deterministic
+two-archive hash check.
 
 ## Safety boundary
 

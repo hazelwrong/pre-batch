@@ -90,9 +90,19 @@ def record_and_check_workflows(task_ids, delivery):
             continue
         pipeline = Pipeline(workspace)
         try:
-            pipeline.record_validation(delivery)
+            pipeline.record_validation(delivery, "final")
         except PipelineError as exc:
             problems.append("%s validation evidence: %s" % (task_id, exc))
+            continue
+        state = pipeline._load()
+        if state.get("review_cycle"):
+            try:
+                pipeline.record_human_review()
+            except PipelineError as exc:
+                problems.append("%s H-REG: %s" % (task_id, exc))
+                continue
+            if not pipeline.status()["release_ready"]:
+                problems.append("%s workflow is not release-ready" % task_id)
             continue
         review_path = review_map.get(task_id)
         if not review_path and review_root:

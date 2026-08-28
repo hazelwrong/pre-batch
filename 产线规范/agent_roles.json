@@ -10,26 +10,26 @@
   "model_tiers": {
     "L4": {
       "label": "最高推理档",
-      "default_model": "claude-opus-5",
+      "default_model": "gpt-5.6-sol",
       "thinking": "high",
       "when": "任务是否成立由它决定，错一次整条任务作废"
     },
     "L3": {
       "label": "高推理档",
-      "default_model": "claude-opus-5",
-      "thinking": "medium",
+      "default_model": "gpt-5.6-terra",
+      "thinking": "high",
       "when": "需要专业判断但有明确对错，可被下游门禁兜住"
     },
     "L2": {
       "label": "中档",
-      "default_model": "claude-sonnet-5",
+      "default_model": "gpt-5.6-terra",
       "thinking": "medium",
       "when": "规格清晰的整理、归一、比对、汇总"
     },
     "L1": {
       "label": "低档",
-      "default_model": "claude-haiku-4-5-20251001",
-      "thinking": "none",
+      "default_model": "gpt-5.6-luna",
+      "thinking": "low",
       "when": "机械核对、清单填充、区分度对照组"
     },
     "L0": {
@@ -425,6 +425,38 @@
         "程序化判定逻辑只写进 rubric_checks（内部，不进交付），rubric 只带标准格式的八个字段加 verification/score_levels/check。",
         "不要让 gold 拿满分；覆盖负面约束但一般职业用正分表述，负分只用于做错有明确损害的职业。"
       ]
+    }
+  },
+  "human_review_contracts": {
+    "general_review": {
+      "id": "H01",
+      "audience": "通用审查人",
+      "stage_requires": ["production_complete", "candidate_delivery_frozen"],
+      "may_run_in_parallel_with": ["occupational_expert_review"],
+      "required_readonly_inputs": ["candidate_delivery", "prompt", "file_manifest", "provenance_summary"],
+      "single_return_file": "xlsx",
+      "editable_sections": ["checklist_decisions", "findings", "verdict", "substantive_opinion"],
+      "must_bind_basis": "initial_basis"
+    },
+    "occupational_expert_review": {
+      "id": "H02",
+      "audience": "职业专家",
+      "stage_requires": ["production_complete", "candidate_delivery_frozen"],
+      "may_run_in_parallel_with": ["general_review"],
+      "required_readonly_inputs": ["candidate_delivery", "occupation_standard", "prompt", "rubric", "expected_values"],
+      "single_return_file": "xlsx",
+      "editable_sections": ["occupation_mapping", "professional_checklist", "rubric_adoption", "gold_item_scoring", "findings", "verdict", "substantive_opinion"],
+      "must_bind_basis": "initial_basis"
+    },
+    "final_review": {
+      "id": "H03",
+      "audience": "第三位终审人",
+      "stage_requires": ["phase1_receipts_ingested", "remediation_closed", "pre_final_validation_passed", "final_package_frozen"],
+      "required_readonly_inputs": ["phase1_receipts", "remediation_evidence", "post_remediation_candidate", "pre_final_validation", "hash_manifest"],
+      "single_return_file": "xlsx",
+      "editable_sections": ["sequence_confirmation", "finding_closure_confirmation", "verdict", "substantive_opinion"],
+      "must_bind_basis": "post_remediation_basis",
+      "must_be_distinct_from": ["general_review", "occupational_expert_review"]
     }
   },
   "requires_roles_note": "requires_roles 只在同一个 workspace 内生效。批次层角色（B01/B02/B03）在批次 workspace 运行，其产物以 intake artifact 进入任务 workspace，因此任务层角色不得把批次层角色写进 requires_roles——依赖由 required_inputs 承担。",

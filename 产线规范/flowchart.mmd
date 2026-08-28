@@ -29,26 +29,32 @@ flowchart TB
 
   subgraph RELEASE["人审与发布核"]
     direction LR
-    H21["H21 通用审查<br/>真人 1 · 结构/来源/泄漏"]
-    H22["H22 职业专家审查<br/>真人 2 · 资质状态如实登记 · 实质驳回<br/>Gold 评分 · rubric 采纳"]
+    CAND["候选交付包<br/>Candidate-Delivery-Package.zip"]
+    P1["第一阶段人审包<br/>两包并行发出"]
+    H21["H01 通用审查<br/>真人 1 · 只返回一个 XLSX<br/>结构/来源/泄漏"]
+    H22["H02 职业专家审查<br/>真人 2 · 只返回一个 XLSX<br/>职业映射 · Gold 评分 · rubric 采纳"]
+    ING1["回执录入<br/>原 XLSX 不可变 + SHA-256<br/>姓名/时间/资质据实转录"]
     CLOSE{{"意见闭环<br/>逐项 disposition · 证据 · 带时区 closed_at"}}
-    H23["H23 最终终审<br/>真人 3 · 不代签前两层<br/>reviewed_at &gt; max(前两层, 全部 closed_at)"]
+    PREVAL["Pre-final validation<br/>仅 final_review 可为 not_run"]
+    FPKG["冻结终审包<br/>Final-Review-Package.zip"]
+    H23["H03 最终终审<br/>真人 3 · 只返回一个 XLSX<br/>时间晚于全部前置事件"]
+    ING3["终审回执录入<br/>第三位真人 · 固定 basis"]
     G7{{"G7 人审证据齐全<br/>Gold 达阈值"}}
     VAL["Strict final validation<br/>逐任务 + 批次聚合"]
     G5{{"G5<br/>failed=0 · not_run=0 · stale=0"}}
     HREG["H-REG · L0<br/>登记已完成人审，绑定 validation digest"]
     PKG["S-PKG · L0<br/>冻结 snapshot，连续打包两次"]
     REL{{"发布<br/>全任务 ready · 两次 zip SHA-256 一致"}}
-    H21 --> CLOSE
-    H22 --> CLOSE
-    CLOSE --> H23 --> G7 --> VAL --> G5 --> HREG --> PKG --> REL
+    CAND --> P1
+    P1 --> H21 --> ING1
+    P1 --> H22 --> ING1
+    ING1 --> CLOSE --> PREVAL --> FPKG --> H23 --> ING3 --> G7 --> VAL --> G5 --> HREG --> PKG --> REL
   end
 
   ROUTE["Reason-code 局部回流<br/>T13.MISSING_PROMPT_FACT → T12<br/>T13.SCENARIO_UNSOLVABLE → T11<br/>T14.GOLD_MISMATCH → T10<br/>T14.REFERENCE_FACT_GAP → T11<br/>T15.RUBRIC_STRUCTURE → T15<br/>T15.HIDDEN_REQUIREMENT → T12<br/>人审/最终校验 → 产物最早责任角色"]
 
   PRE -- passed --> B0 --> T11
-  G4 -- passed --> H21
-  G4 -- passed --> H22
+  G4 -- passed --> CAND
   G1 -. failed .-> ROUTE
   G3 -. failed .-> ROUTE
   G4 -. failed .-> ROUTE

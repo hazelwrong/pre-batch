@@ -12,13 +12,16 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 from uuid import uuid4
 
 import openpyxl
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from orchestrator import (Pipeline, PipelineError, DEFAULT_POLICY,
-                          sample_rubric_item_count)
+                          REQUIRED_VALIDATION_CHECKS,
+                          _sha256, sample_rubric_item_count,
+                          validation_registry_digest)
 
 
 def rubric_items(count=40):
@@ -78,6 +81,12 @@ class PipelineTest(unittest.TestCase):
         self.base = Path(self.tmp.name)
         self.workspace = self.base / "work"
         self.pipeline = Pipeline.initialise(self.workspace, str(uuid4()))
+        self.validator_run = mock.patch.object(
+            Pipeline, "_run_fixed_validator", return_value={
+                "nonce": "test-validation-nonce", "returncode": 0,
+                "stdout": "", "stderr": "",
+            })
+        self.validator_run.start()
         self.inputs = self.base / "inputs"
         self.inputs.mkdir()
         for category in ("coverage", "source_manifest", "occupation_standard",
@@ -88,6 +97,7 @@ class PipelineTest(unittest.TestCase):
         self.pipeline.add_artifact("policy", [DEFAULT_POLICY])
 
     def tearDown(self):
+        self.validator_run.stop()
         self.tmp.cleanup()
 
     def intake(self, category, text):
@@ -165,8 +175,16 @@ class PipelineTest(unittest.TestCase):
         manifests.mkdir(parents=True)
         evidence.mkdir(parents=True)
         (evidence / "report.json").write_text('{"passed": true}', encoding="utf-8")
-        status = {"task_id": state["task_id"],
-                  "checks": [{"check": "fixed_registry", "status": "passed"}]}
+        status = {
+            "task_id": state["task_id"],
+            "validator": "pipeline/validate.py (programmatic self-check)",
+            "validator_sha256": _sha256(Path(__file__).with_name("validate.py")),
+            "validation_run_nonce": "test-validation-nonce",
+            "registry_sha256": validation_registry_digest(
+                REQUIRED_VALIDATION_CHECKS),
+            "checks": [{"check": name, "status": "passed"}
+                       for name in sorted(REQUIRED_VALIDATION_CHECKS)],
+        }
         (manifests / "validation_status.jsonl").write_text(
             json.dumps(status) + "\n", encoding="utf-8")
         self.pipeline.record_validation(delivery)
@@ -675,8 +693,18 @@ class PipelineTest(unittest.TestCase):
         (delivery / "manifests").mkdir(parents=True)
         evidence.mkdir(parents=True)
         (evidence / "report.json").write_text("{}", encoding="utf-8")
-        row = {"task_id": state["task_id"],
-               "checks": [{"check": "human_review", "status": "not_run"}]}
+        row = {
+            "task_id": state["task_id"],
+            "validator": "pipeline/validate.py (programmatic self-check)",
+            "validator_sha256": _sha256(Path(__file__).with_name("validate.py")),
+            "validation_run_nonce": "test-validation-nonce",
+            "registry_sha256": validation_registry_digest(
+                REQUIRED_VALIDATION_CHECKS),
+            "checks": [{"check": name,
+                        "status": ("not_run" if name == "human_review_final_review"
+                                   else "passed")}
+                       for name in sorted(REQUIRED_VALIDATION_CHECKS)],
+        }
         (delivery / "manifests" / "validation_status.jsonl").write_text(
             json.dumps(row) + "\n", encoding="utf-8")
         with self.assertRaises(PipelineError) as caught:

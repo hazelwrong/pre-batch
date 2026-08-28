@@ -11,11 +11,11 @@
 | 角色 | 类型 | 模型档 |
 |---|---|---|
 | T10 Gold 登记 | 人工登记 + 固定脚本 | L0，无模型 |
-| T11 蓝图与输入设计 | agent | L4，Opus/high |
-| T12 Prompt | agent | L2，Sonnet/medium |
-| T13 冷解题 | 独立 agent | L4，Opus/high |
-| T14 冷复算 | 独立 agent | L3，Opus/medium |
-| T15 Rubric | agent | L3，Opus/medium |
+| T11 蓝图与输入设计 | agent | L4，GPT-5.6 Sol/high |
+| T12 Prompt | agent | L2，GPT-5.6 Terra/medium |
+| T13 冷解题 | 独立 agent | L4，GPT-5.6 Sol/high |
+| T14 冷复算 | 独立 agent | L3，GPT-5.6 Terra/high |
+| T15 Rubric | agent | L3，GPT-5.6 Terra/high |
 
 模型、思考档、每角色最大尝试数和每任务总 agent runs 都只在两份 JSON 契约中维护。
 
@@ -64,25 +64,25 @@ python3 pipeline/orchestrator.py migrate-policy-scope \
   --changed-section human_review
 ```
 
-## 固定 validation 登记
+## 人审包与固定 validation 登记
 
 ```bash
-python3 pipeline/orchestrator.py record-validation \
-  workbench/<task_id> <delivery_root>
-python3 pipeline/orchestrator.py record-human-review \
-  workbench/<task_id> <human_review_record.json>
+python3 pipeline/review_kits.py phase1 \
+  workbench/<task_id> delivery outputs/<task_id> \
+  --tasks-root tasks --staging-root staging \
+  --node <bundled-node> --node-modules <bundled-node_modules>
 ```
 
-`record-validation` 是发布流程唯一认可的确定性校验登记入口：它登记固定 final validator 的结果和证据 digest。旧式“传入任意命令、退出码 0 即通过”的 gate 不构成发布证据，也不写入操作流程。
+第一阶段同时输出候选交付包与人审填写包；后者包含互不依赖的通审包和职业专家包。每位审核人只返回一个 XLSX。项目方保留原始回执并录入真人姓名、职务、带时区时间和资质状态；缺少资质证据时使用 `not_supplied`，不得补造。
 
-顺序固定为：T10 Gold 落地与固定技术预检 → T11–T15 角色生产 → 通用审查/职业专家审查 → 意见闭环 → 第三人最终终审 → 覆盖该证据的 strict final validation → H-REG 将人审记录登记进 workflow 并绑定 validation digest → 确定性打包。终审时间必须严格晚于前两层与全部闭环时间；H-REG 不是第二次审阅。发布前必须同时满足：
+顺序固定为：T10 Gold 落地与固定技术预检 → T11–T15 角色生产 → 通用审查/职业专家审查并行 → 意见闭环 → pre-final validation → 冻结第三人终审包 → 最终终审 → strict final validation → H-REG 绑定 validation digest → 确定性打包。终审时间必须严格晚于前两层、全部闭环、pre-final validation 与冻结时间；H-REG 不是第二次审阅。完整字段和命令见 `人工复核包规范.md`。
 
 ```text
 failed = 0
 not_run = 0
 stale = 0
 gold 完整人工评分达到阈值
-三层不同签署人、资质状态如实登记、实质驳回记录齐全
+三层不同签署人、资质状态如实登记、逐条实质审查记录齐全
 哈希自检无不符
 连续两次构建 zip 哈希一致
 ```
@@ -93,11 +93,10 @@ gold 完整人工评分达到阈值
 
 ```bash
 GDPVAL_TASK_ID=<task_id>[,<task_id>...] \
-GDPVAL_HUMAN_REVIEW_ROOT=<root-containing-task-subdirs> \
 GDPVAL_ARCHIVE=<发布zip路径> python3 pipeline/run.py
 ```
 
-`GDPVAL_HUMAN_REVIEW_ROOT/<task_id>/human_review_record.json` 必须是三层人审已完成的正式记录；`run.py` 会在每个任务的 final validation 之后调用 H-REG，重新绑定本次 validation digest。也可以用 `GDPVAL_HUMAN_REVIEW_RECORDS` 传入 JSON 对象，将 task id 映射到各自记录路径。未提供记录时归档会明确跳过，不会把旧的人审绑定误当成当前证据。
+新式 staged workflow 由 `run.py` 在 final validation 后直接从三份不可变 XLSX 回执及项目方录入记录执行 H-REG，不接受外部合并 JSON 绕过阶段门。旧 workflow 仍可通过 `GDPVAL_HUMAN_REVIEW_ROOT` 或 `GDPVAL_HUMAN_REVIEW_RECORDS` 迁移，但历史 MD/TSV 回执只作为 legacy evidence 保留，不伪装成真人返回的 XLSX。
 
 不设置 `GDPVAL_ARCHIVE` 只生成并检查 unpacked delivery，不产生发布包。
 
@@ -113,6 +112,7 @@ deliverable 必须是现实工作中真实交付过的文件。reference 可据�
 - `agent_roles.json`：角色输入、输出、completion criteria、失败 reason code。
 - `policy.json`：业务阈值、预算、并发和严格发布条件。
 - `flowchart.mmd`：多任务并行与单任务串行图。
+- `人工复核包规范.md`：两阶段审核包、单一 XLSX 回执、录入和时序门。
 - `../../甲方要求/甲方口径与踩坑清单/`：上位硬规范。
 
 `pipeline/archive/` 仅供追溯；其中的 gold 生成器不属于可执行产线。

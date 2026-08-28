@@ -103,7 +103,8 @@ def write_archive(tree_root, out_path, arc_prefix=None, epoch=None):
             info.compress_type = zipfile.ZIP_DEFLATED
             z.writestr(info, data)
 
-    h = hashlib.sha256(open(out_path, "rb").read()).hexdigest()
+    with open(out_path, "rb") as fh:
+        h = hashlib.sha256(fh.read()).hexdigest()
     return {"path": out_path, "sha256": h, "bytes": os.path.getsize(out_path),
             "files": len(files), "directories": len(dirs),
             "source_date_epoch": epoch,

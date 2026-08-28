@@ -1077,6 +1077,11 @@ def write_validation_status(task_id):
                       "human_review_* entries are transcribed from the task's "
                       "reviewers.json and were determined by the named reviewers, "
                       "not by this script"),
+        "validator_sha256": sha256(os.path.abspath(__file__)),
+        "validation_run_nonce": os.environ.get("GDPVAL_VALIDATION_NONCE"),
+        "registry_sha256": hashlib.sha256(json.dumps(
+            sorted(item["check"] for item in results),
+            separators=(",", ":")).encode("utf-8")).hexdigest(),
         "checks": results,
     })
     with open(path, "w", encoding="utf-8") as fh:

@@ -202,6 +202,22 @@
     "source_inventory_min": 5000
   },
   "human_review": {
+    "workflow_mode": "staged_xlsx_v1",
+    "phase1_parallel": true,
+    "single_return_file": "xlsx",
+    "raw_receipt_immutable": true,
+    "receipt_sha256_required": true,
+    "receipt_xlsx_cells_are_authoritative": true,
+    "project_transcription_scope": [
+      "reviewer_id",
+      "reviewer_title",
+      "reviewed_at",
+      "credential_status"
+    ],
+    "all_release_verdicts_must_pass": true,
+    "review_basis_required": true,
+    "final_requires_remediation_closed": true,
+    "supplemental_review_scope": "changed_items_only",
     "expert_profiles_required_per_task": 3,
     "expert_profile_required_fields": [
       "expert_id",
@@ -222,8 +238,9 @@
     "final_strictly_after_first_two": true,
     "review_timestamps_require_timezone": true,
     "closure_evidence_required": true,
-    "expert_rejection_required": true,
-    "expert_rejection_note": "全票通过的复核记录本身是可疑信号",
+    "expert_rejection_required": false,
+    "expert_rejection_note": "不得为了制造实质性而强迫专家反对。实质审查以职业映射理由、逐条 adopt/revise/reject、Gold 逐条评分和必要意见的完整性证明；真实的全量 adopt 可保留。",
+    "substantive_review_required": true,
     "adoption_scope": "rubric_version_reviewed 必须匹配当前 rubric 版本，否则不予采信",
     "independence_claim": "supplier-recorded review; not represented as independent third-party certification",
     "credential_verification_status": "not_supplied",
