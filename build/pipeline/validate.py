@@ -1043,7 +1043,7 @@ def render(r, outdir):
             src = P(rel)
             name = os.path.splitext(os.path.basename(rel))[0]
             pdf = src
-            if not src.endswith(".pdf"):
+            if not src.lower().endswith(".pdf"):
                 subprocess.run(["soffice",
                                 "-env:UserInstallation=file://" + profile,
                                 "--headless", "--convert-to", "pdf",

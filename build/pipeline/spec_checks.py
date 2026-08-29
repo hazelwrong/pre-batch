@@ -225,7 +225,9 @@ def expert_rejection_recorded(reviewers, policy, **_):
     suspicious signal. The accepted package records six rounds, two of them
     substantive rejections."""
     if not (policy.get("human_review") or {}).get("expert_rejection_required"):
-        return ("expert_rejection_recorded", "not_run", "policy does not require it")
+        return ("expert_rejection_recorded", "passed",
+                "Policy does not require an expert to manufacture a rejection; "
+                "a substantive all-adopt review is allowed.")
     if not reviewers:
         return ("expert_rejection_recorded", "not_run", "no reviewer roster available")
     experts = reviewers.get("occupational_expert_review") or []

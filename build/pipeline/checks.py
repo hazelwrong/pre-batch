@@ -66,7 +66,7 @@ def xlsx_text(path):
 
 
 def any_text(path):
-    if path.endswith(".pdf"):
+    if path.lower().endswith(".pdf"):
         return pdf_text(path)
     if path.endswith(".docx"):
         return docx_text(path)
