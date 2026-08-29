@@ -148,7 +148,46 @@
       "是否为空"
     ],
     "checks_coverage_rule": "rubric_checks/checks.json 必须为每个 rubric_item_id 给出条目：可程序化的写 {\"type\":..., \"params\":...}，不可程序化的写 {\"human\": true, \"reason\": ...}。缺项即视为「判不了就默认通过」，不予放行。",
-    "score_note": "单项分值为非负整数，不设 1-3 上限或 1-2 占比门槛；所有分值总和严格为 total_score。"
+    "score_note": "单项分值为非负整数，不设 1-3 上限或 1-2 占比门槛；所有分值总和严格为 total_score。",
+    "required_field_semantics": "required 表示该条目是否为不可被其他得分补偿的硬性验收门槛：true 的条目一旦不满足，即使总分达到通过线，交付物也不应通过验收。它不表示重要性、不表示可自动检查、不表示已被专家采纳，也不表示未拿满分即失败。",
+    "required_true_criteria": [
+      "要求已在 prompt 中明确提出，Agent 可以预见",
+      "结果可客观核验",
+      "失败会导致交付物不可用、不可信、不完整或有实质风险",
+      "不能靠其他方面做得好来弥补"
+    ],
+    "required_true_examples": [
+      "指定交付文件缺失、命名错误或无法打开",
+      "必需的工作表、报告章节或输出字段不存在",
+      "核心计算错误，或关键数字无法追溯到 reference",
+      "prompt 要求公式驱动但核心结果是手填数值",
+      "报告与工作簿的关键数字互相矛盾",
+      "使用未披露的外部假设或补造事实",
+      "输出泄露隐私、含恶意内容或违反明确合规限制",
+      "缺少决定业务结论所必需的分析或判断"
+    ],
+    "required_false_examples": [
+      "视觉排版可进一步优化",
+      "图表配色不够理想",
+      "风险说明完整但不够深入",
+      "建议合理但行动计划不够细",
+      "缺少非必要的辅助图表",
+      "个别非关键字段格式不统一",
+      "表达略显冗长但无事实错误"
+    ],
+    "required_mix_rule": "不得把所有条目机械地设为同一值。全为 true 会让普通质量瑕疵变成拒收理由；全为 false 会让文件缺失、核心计算错误等严重缺陷被排版得分补偿。甲方审核的是划分是否有业务意义，不是 required 的数量。",
+    "required_acceptance_test": "如果这一项失败，我是否仍愿意把这份文件交给目标客户、经理或监管方使用？答「绝对不能」→ required=true；答「仍可用但质量下降」→ required=false。",
+    "required_score_levels_rule": "required=true 且允许部分得分的条目，必须在 score_levels 中逐档写明该档是否仍满足硬门槛。只写 required=true 而不说明部分分何时算硬门槛失败，实际验收时会产生争议。",
+    "required_score_levels_example": {
+      "required": true,
+      "score_levels": {
+        "10": "全部关键数字正确且完整披露",
+        "7": "关键数字正确，但一项次要披露缺失；仍满足硬门槛",
+        "3": "存在影响决策的重要计算错误；不满足硬门槛",
+        "0": "核心计算缺失或无法复算；不满足硬门槛"
+      }
+    },
+    "required_field_source": "甲方要求/rubric required 字段说明(1).md"
   },
   "gates": {
     "gold_deliverable_eval_threshold": 60,

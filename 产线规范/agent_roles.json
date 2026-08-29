@@ -78,15 +78,40 @@
         "coverage"
       ],
       "completion_criteria": [
-        {"code": "T10.OUTPUTS_PRESENT", "condition": "gold, gold_provenance and production_notes are non-empty"},
-        {"code": "T10.REAL_DELIVERABLE", "condition": "provenance identifies a permitted real deliverable and records every transformation"},
-        {"code": "T10.TECHNICAL_PREFLIGHT", "condition": "format, metadata, malware, path and licence preflight has no failed or not_run result"}
+        {
+          "code": "T10.OUTPUTS_PRESENT",
+          "condition": "gold, gold_provenance and production_notes are non-empty"
+        },
+        {
+          "code": "T10.REAL_DELIVERABLE",
+          "condition": "provenance identifies a permitted real deliverable and records every transformation"
+        },
+        {
+          "code": "T10.TECHNICAL_PREFLIGHT",
+          "condition": "format, metadata, malware, path and licence preflight has no failed or not_run result"
+        }
       ],
       "failure_routes": [
-        {"reason_code": "T10.INTAKE_INCOMPLETE", "route_to": "gold_curator", "action": "request missing human evidence"},
-        {"reason_code": "T10.PROVENANCE_INVALID", "route_to": "gold_curator", "action": "correct or replace the source declaration"},
-        {"reason_code": "T10.DELIVERABLE_NOT_REAL", "route_to": "stop", "action": "replace the deliverable; generation is not a rework route"},
-        {"reason_code": "T10.PREFLIGHT_FAILED", "route_to": "gold_curator", "action": "repair the named technical defect and rerun preflight"}
+        {
+          "reason_code": "T10.INTAKE_INCOMPLETE",
+          "route_to": "gold_curator",
+          "action": "request missing human evidence"
+        },
+        {
+          "reason_code": "T10.PROVENANCE_INVALID",
+          "route_to": "gold_curator",
+          "action": "correct or replace the source declaration"
+        },
+        {
+          "reason_code": "T10.DELIVERABLE_NOT_REAL",
+          "route_to": "stop",
+          "action": "replace the deliverable; generation is not a rework route"
+        },
+        {
+          "reason_code": "T10.PREFLIGHT_FAILED",
+          "route_to": "gold_curator",
+          "action": "repair the named technical defect and rerun preflight"
+        }
       ],
       "instructions": [
         "把选定的真实交付物落成 gold：脱敏、去环境残留、剥离 docProps/ 与 customXml/、统一 zip 时间戳，保持业务本来的格式与专业质量。",
@@ -143,15 +168,40 @@
         "source_manifest"
       ],
       "completion_criteria": [
-        {"code": "T11.OUTPUTS_PRESENT", "condition": "all four required output categories are non-empty"},
-        {"code": "T11.ISOLATION_SPLIT", "condition": "task_blueprint contains no evaluator-only field and design_notes records reasoning_points"},
-        {"code": "T11.RECONSTRUCTIBLE_SPEC", "condition": "every material gold fact has an input source and lineage edge"}
+        {
+          "code": "T11.OUTPUTS_PRESENT",
+          "condition": "all four required output categories are non-empty"
+        },
+        {
+          "code": "T11.ISOLATION_SPLIT",
+          "condition": "task_blueprint contains no evaluator-only field and design_notes records reasoning_points"
+        },
+        {
+          "code": "T11.RECONSTRUCTIBLE_SPEC",
+          "condition": "every material gold fact has an input source and lineage edge"
+        }
       ],
       "failure_routes": [
-        {"reason_code": "T11.GOLD_SOURCE_GAP", "route_to": "gold_curator", "action": "repair or replace the registered source"},
-        {"reason_code": "T11.INPUT_FACT_GAP", "route_to": "task_designer", "action": "revise reference_spec"},
-        {"reason_code": "T11.SCENARIO_INVALID", "route_to": "task_designer", "action": "redesign the task blueprint"},
-        {"reason_code": "T11.EVALUATOR_LEAK", "route_to": "task_designer", "action": "move answer-bearing content to design_notes"}
+        {
+          "reason_code": "T11.GOLD_SOURCE_GAP",
+          "route_to": "gold_curator",
+          "action": "repair or replace the registered source"
+        },
+        {
+          "reason_code": "T11.INPUT_FACT_GAP",
+          "route_to": "task_designer",
+          "action": "revise reference_spec"
+        },
+        {
+          "reason_code": "T11.SCENARIO_INVALID",
+          "route_to": "task_designer",
+          "action": "redesign the task blueprint"
+        },
+        {
+          "reason_code": "T11.EVALUATOR_LEAK",
+          "route_to": "task_designer",
+          "action": "move answer-bearing content to design_notes"
+        }
       ],
       "instructions": [
         "从真实交付物倒推输入：gold 里出现的每个关键数字都必须在 reference_spec 里有出处，不允许出现输出里有、输入里没有的数。",
@@ -207,14 +257,35 @@
         "coverage"
       ],
       "completion_criteria": [
-        {"code": "T12.OUTPUTS_PRESENT", "condition": "prompt and output_contract are non-empty"},
-        {"code": "T12.SELF_CONTAINED_DRAFT", "condition": "the prompt names inputs, outputs, units, exceptions and execution limits without placeholders"},
-        {"code": "T12.NO_GOLD_VISIBILITY", "condition": "the run packet contains no gold, design_notes, production_notes, rubric or expected_values"}
+        {
+          "code": "T12.OUTPUTS_PRESENT",
+          "condition": "prompt and output_contract are non-empty"
+        },
+        {
+          "code": "T12.SELF_CONTAINED_DRAFT",
+          "condition": "the prompt names inputs, outputs, units, exceptions and execution limits without placeholders"
+        },
+        {
+          "code": "T12.NO_GOLD_VISIBILITY",
+          "condition": "the run packet contains no gold, design_notes, production_notes, rubric or expected_values"
+        }
       ],
       "failure_routes": [
-        {"reason_code": "T12.PROMPT_INCOMPLETE", "route_to": "prompt_author", "action": "revise the prompt"},
-        {"reason_code": "T12.BLUEPRINT_GAP", "route_to": "task_designer", "action": "supply the missing contract fact"},
-        {"reason_code": "T12.PROMPT_LEAK", "route_to": "prompt_author", "action": "remove answer-bearing text and create a fresh downstream wave"}
+        {
+          "reason_code": "T12.PROMPT_INCOMPLETE",
+          "route_to": "prompt_author",
+          "action": "revise the prompt"
+        },
+        {
+          "reason_code": "T12.BLUEPRINT_GAP",
+          "route_to": "task_designer",
+          "action": "supply the missing contract fact"
+        },
+        {
+          "reason_code": "T12.PROMPT_LEAK",
+          "route_to": "prompt_author",
+          "action": "remove answer-bearing text and create a fresh downstream wave"
+        }
       ],
       "instructions": [
         "写足需求文档 §3 的九项：职业角色、委托方与业务背景、逐个 basename 的用途与关系、要做的分析与判断、公式口径单位币种期间日期格式与异常处理、每个输出文件的准确文件名与内部结构、质量与跨文件一致性要求、缺失冲突时的处理、以及不得联网不得补造事实的执行边界。",
@@ -267,15 +338,40 @@
       ],
       "optional_inputs": [],
       "completion_criteria": [
-        {"code": "T13.OUTPUTS_PRESENT", "condition": "solver_deliverables and solver_report are non-empty"},
-        {"code": "T13.G1_PASS", "condition": "prompt_self_contained, solvable and task_multistep are true; separating_power is sufficient; no prompt leak is reported"},
-        {"code": "T13.COLD_CONTEXT", "condition": "the A-xxx instance and context have not seen gold, rubric, lineage or an earlier answer"}
+        {
+          "code": "T13.OUTPUTS_PRESENT",
+          "condition": "solver_deliverables and solver_report are non-empty"
+        },
+        {
+          "code": "T13.G1_PASS",
+          "condition": "prompt_self_contained, solvable and task_multistep are true; separating_power is sufficient; no prompt leak is reported"
+        },
+        {
+          "code": "T13.COLD_CONTEXT",
+          "condition": "the A-xxx instance and context have not seen gold, rubric, lineage or an earlier answer"
+        }
       ],
       "failure_routes": [
-        {"reason_code": "T13.MISSING_PROMPT_FACT", "route_to": "prompt_author", "action": "repair prompt and start a fresh T13 instance"},
-        {"reason_code": "T13.SCENARIO_UNSOLVABLE", "route_to": "task_designer", "action": "repair reference design and rebuild downstream artifacts"},
-        {"reason_code": "T13.PROMPT_LEAK", "route_to": "prompt_author", "action": "remove leak and start a fresh T13 instance"},
-        {"reason_code": "T13.LOW_SEPARATING_POWER", "route_to": "task_designer", "action": "strengthen reasoning requirements"}
+        {
+          "reason_code": "T13.MISSING_PROMPT_FACT",
+          "route_to": "prompt_author",
+          "action": "repair prompt and start a fresh T13 instance"
+        },
+        {
+          "reason_code": "T13.SCENARIO_UNSOLVABLE",
+          "route_to": "task_designer",
+          "action": "repair reference design and rebuild downstream artifacts"
+        },
+        {
+          "reason_code": "T13.PROMPT_LEAK",
+          "route_to": "prompt_author",
+          "action": "remove leak and start a fresh T13 instance"
+        },
+        {
+          "reason_code": "T13.LOW_SEPARATING_POWER",
+          "route_to": "task_designer",
+          "action": "strengthen reasoning requirements"
+        }
       ],
       "instructions": [
         "只用 prompt 和 references 完成任务，不接触 gold、rubric、lineage 或任何制作记录。",
@@ -335,16 +431,44 @@
       ],
       "optional_inputs": [],
       "completion_criteria": [
-        {"code": "T14.OUTPUTS_PRESENT", "condition": "expected_values and verifier_report are non-empty"},
-        {"code": "T14.G3_PASS", "condition": "recompute_passed and lineage_valid are true, with no mismatch or demand lacking a gold landing place"},
-        {"code": "T14.NO_DERIVATION_VISIBILITY", "condition": "the run packet excludes design_notes, production_notes and prior verifier work"},
-        {"code": "T14.INDEPENDENT_FIRST_PASS", "condition": "the verifier completes its full consistency and lineage self-check before handoff; unresolved questions are recorded as findings rather than deferred to downstream agents"}
+        {
+          "code": "T14.OUTPUTS_PRESENT",
+          "condition": "expected_values and verifier_report are non-empty"
+        },
+        {
+          "code": "T14.G3_PASS",
+          "condition": "recompute_passed and lineage_valid are true, with no mismatch or demand lacking a gold landing place"
+        },
+        {
+          "code": "T14.NO_DERIVATION_VISIBILITY",
+          "condition": "the run packet excludes design_notes, production_notes and prior verifier work"
+        },
+        {
+          "code": "T14.INDEPENDENT_FIRST_PASS",
+          "condition": "the verifier completes its full consistency and lineage self-check before handoff; unresolved questions are recorded as findings rather than deferred to downstream agents"
+        }
       ],
       "failure_routes": [
-        {"reason_code": "T14.GOLD_MISMATCH", "route_to": "gold_curator", "action": "verify the registered deliverable or replace the task"},
-        {"reason_code": "T14.REFERENCE_FACT_GAP", "route_to": "task_designer", "action": "repair reference_spec and rebuild downstream artifacts"},
-        {"reason_code": "T14.LINEAGE_INVALID", "route_to": "task_designer", "action": "repair lineage and affected inputs"},
-        {"reason_code": "T14.GOLD_LANDING_GAP", "route_to": "task_designer", "action": "remove or redesign the unsupported prompt demand"}
+        {
+          "reason_code": "T14.GOLD_MISMATCH",
+          "route_to": "gold_curator",
+          "action": "verify the registered deliverable or replace the task"
+        },
+        {
+          "reason_code": "T14.REFERENCE_FACT_GAP",
+          "route_to": "task_designer",
+          "action": "repair reference_spec and rebuild downstream artifacts"
+        },
+        {
+          "reason_code": "T14.LINEAGE_INVALID",
+          "route_to": "task_designer",
+          "action": "repair lineage and affected inputs"
+        },
+        {
+          "reason_code": "T14.GOLD_LANDING_GAP",
+          "route_to": "task_designer",
+          "action": "remove or redesign the unsupported prompt demand"
+        }
       ],
       "instructions": [
         "只读 references 与 prompt 独立复算 gold 里的每一个关键数字，这同时是 §1.1 要求的合成输入反向验证。",
@@ -407,19 +531,42 @@
         "design_notes"
       ],
       "completion_criteria": [
-        {"code": "T15.OUTPUT_PRESENT", "condition": "rubric is a non-empty array"},
-        {"code": "T15.G4_PASS", "condition": "item count, score total, granularity, required value, ids, foreseeability and judgeability satisfy policy"},
-        {"code": "T15.EXPECTED_VALUE_SOURCE", "condition": "every numeric criterion is sourced from expected_values rather than copied from gold"}
+        {
+          "code": "T15.OUTPUT_PRESENT",
+          "condition": "rubric is a non-empty array"
+        },
+        {
+          "code": "T15.G4_PASS",
+          "condition": "item count, score total, granularity, required value, ids, foreseeability and judgeability satisfy policy"
+        },
+        {
+          "code": "T15.EXPECTED_VALUE_SOURCE",
+          "condition": "every numeric criterion is sourced from expected_values rather than copied from gold"
+        }
       ],
       "failure_routes": [
-        {"reason_code": "T15.RUBRIC_STRUCTURE", "route_to": "rubric", "action": "repair item structure and rerun G4"},
-        {"reason_code": "T15.HIDDEN_REQUIREMENT", "route_to": "prompt_author", "action": "make the requirement foreseeable, then start a fresh downstream wave"},
-        {"reason_code": "T15.NUMERIC_SOURCE_INVALID", "route_to": "verifier", "action": "repair expected_values before regenerating affected items"}
+        {
+          "reason_code": "T15.RUBRIC_STRUCTURE",
+          "route_to": "rubric",
+          "action": "repair item structure and rerun G4"
+        },
+        {
+          "reason_code": "T15.HIDDEN_REQUIREMENT",
+          "route_to": "prompt_author",
+          "action": "make the requirement foreseeable, then start a fresh downstream wave"
+        },
+        {
+          "reason_code": "T15.NUMERIC_SOURCE_INVALID",
+          "route_to": "verifier",
+          "action": "repair expected_values before regenerating affected items"
+        }
       ],
       "instructions": [
         "唯一判断标准：一位干这行的人会不会真的拿这条去评价这份交付物；不会就不写。",
         "条目数按 policy.rubric.item_count_distribution 从 N(30,10) 采样，四舍五入为整数并下截断至 25；总分按 policy.rubric.total_score（默认 100）。",
-        "rubric 条目的 required 字段缺省按 policy.rubric.required_field_default 写入 true；显式值按硬性验收门槛语义允许 true 或 false，不得写成 null。",
+        "required 是硬性验收门槛标记，不是重要性标记：true 表示该条目失败后，即使总分达到通过线交付物也不应通过验收。判定用一句话测试——「这一项失败，我还愿意把这份文件交给客户/经理/监管方吗」，答「绝对不能」写 true，答「仍可用但质量下降」写 false。见 policy.rubric.required_true_criteria 与 required_false_examples。",
+        "不得把所有条目机械地设为同一值：全 true 会让排版瑕疵变成拒收理由，全 false 会让文件缺失、核心计算错误被排版得分补偿。甲方审核的是划分是否有业务意义，不是 required 的数量。",
+        "required=true 且允许部分得分的条目，score_levels 必须逐档写明该档是否仍满足硬门槛（例：「关键数字正确，但一项次要披露缺失；仍满足硬门槛」/「存在影响决策的重要计算错误；不满足硬门槛」）。只写 required=true 而不说明部分分何时算门槛失败，验收时会产生争议。",
         "涉及数字的条目一律用 expected_values，禁止从 gold 抄；不写交付物存在性条目，不写页数字数章节数等形式指标。",
         "可预见性是硬约束：每条都要能在 prompt 或参考文件（含政策规程类）中定位依据，定位不到就把要求写进 prompt 或删条目。",
         "程序化判定逻辑只写进 rubric_checks（内部，不进交付），rubric 只带标准格式的八个字段加 verification/score_levels/check。",
@@ -431,30 +578,82 @@
     "general_review": {
       "id": "H01",
       "audience": "通用审查人",
-      "stage_requires": ["production_complete", "candidate_delivery_frozen"],
-      "may_run_in_parallel_with": ["occupational_expert_review"],
-      "required_readonly_inputs": ["candidate_delivery", "prompt", "review_input_manifest", "file_manifest", "provenance_summary"],
+      "stage_requires": [
+        "production_complete",
+        "candidate_delivery_frozen"
+      ],
+      "may_run_in_parallel_with": [
+        "occupational_expert_review"
+      ],
+      "required_readonly_inputs": [
+        "candidate_delivery",
+        "prompt",
+        "review_input_manifest",
+        "file_manifest",
+        "provenance_summary"
+      ],
       "single_return_file": "xlsx",
-      "editable_sections": ["checklist_decisions", "findings", "verdict", "substantive_opinion"],
+      "editable_sections": [
+        "checklist_decisions",
+        "findings",
+        "verdict",
+        "substantive_opinion"
+      ],
       "must_bind_basis": "initial_basis"
     },
     "occupational_expert_review": {
       "id": "H02",
       "audience": "职业专家",
-      "stage_requires": ["production_complete", "candidate_delivery_frozen"],
-      "may_run_in_parallel_with": ["general_review"],
-      "required_readonly_inputs": ["candidate_delivery", "occupation_standard", "review_input_manifest", "prompt", "rubric", "expected_values"],
+      "stage_requires": [
+        "production_complete",
+        "candidate_delivery_frozen"
+      ],
+      "may_run_in_parallel_with": [
+        "general_review"
+      ],
+      "required_readonly_inputs": [
+        "candidate_delivery",
+        "occupation_standard",
+        "review_input_manifest",
+        "prompt",
+        "rubric",
+        "expected_values"
+      ],
       "single_return_file": "xlsx",
-      "editable_sections": ["occupation_mapping", "professional_checklist", "rubric_adoption", "gold_item_scoring", "findings", "verdict", "substantive_opinion"],
+      "editable_sections": [
+        "occupation_mapping",
+        "professional_checklist",
+        "rubric_adoption",
+        "gold_item_scoring",
+        "findings",
+        "verdict",
+        "substantive_opinion"
+      ],
       "must_bind_basis": "initial_basis"
     },
     "supplemental_review": {
       "id": "H02S",
       "audience": "仅限受影响的原通审人或原职业专家",
-      "stage_requires": ["phase1_receipts_ingested", "remediation_recorded", "changed_item_package_frozen"],
-      "required_readonly_inputs": ["original_receipt", "changed_items", "remediation_evidence", "post_remediation_candidate", "hash_manifest"],
+      "stage_requires": [
+        "phase1_receipts_ingested",
+        "remediation_recorded",
+        "changed_item_package_frozen"
+      ],
+      "required_readonly_inputs": [
+        "original_receipt",
+        "changed_items",
+        "remediation_evidence",
+        "post_remediation_candidate",
+        "hash_manifest"
+      ],
       "single_return_file": "xlsx",
-      "editable_sections": ["changed_item_confirmation", "changed_rubric_adoption", "changed_gold_scoring", "verdict", "substantive_opinion"],
+      "editable_sections": [
+        "changed_item_confirmation",
+        "changed_rubric_adoption",
+        "changed_gold_scoring",
+        "verdict",
+        "substantive_opinion"
+      ],
       "must_bind_basis": "post_remediation_basis",
       "must_use_original_reviewer": true,
       "unchanged_items_are_carried_forward": true
@@ -462,12 +661,31 @@
     "final_review": {
       "id": "H03",
       "audience": "第三位终审人",
-      "stage_requires": ["phase1_receipts_ingested", "remediation_closed", "pre_final_validation_passed", "final_package_frozen"],
-      "required_readonly_inputs": ["phase1_receipts", "remediation_evidence", "post_remediation_candidate", "pre_final_validation", "hash_manifest"],
+      "stage_requires": [
+        "phase1_receipts_ingested",
+        "remediation_closed",
+        "pre_final_validation_passed",
+        "final_package_frozen"
+      ],
+      "required_readonly_inputs": [
+        "phase1_receipts",
+        "remediation_evidence",
+        "post_remediation_candidate",
+        "pre_final_validation",
+        "hash_manifest"
+      ],
       "single_return_file": "xlsx",
-      "editable_sections": ["sequence_confirmation", "finding_closure_confirmation", "verdict", "substantive_opinion"],
+      "editable_sections": [
+        "sequence_confirmation",
+        "finding_closure_confirmation",
+        "verdict",
+        "substantive_opinion"
+      ],
       "must_bind_basis": "post_remediation_basis",
-      "must_be_distinct_from": ["general_review", "occupational_expert_review"]
+      "must_be_distinct_from": [
+        "general_review",
+        "occupational_expert_review"
+      ]
     }
   },
   "requires_roles_note": "requires_roles 只在同一个 workspace 内生效。批次层角色（B01/B02/B03）在批次 workspace 运行，其产物以 intake artifact 进入任务 workspace，因此任务层角色不得把批次层角色写进 requires_roles——依赖由 required_inputs 承担。",

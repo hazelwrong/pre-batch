@@ -143,10 +143,33 @@ def rubric_required_field(record, policy, **_):
     items = json.loads(record["rubric_json"])
     wrong = [i.get("rubric_item_id") for i in items
              if i.get("required") not in allowed]
-    return ("rubric_required_field", "passed" if not wrong else "failed",
-            "All %d items carry a boolean required hard-gate designation; "
-            "missing values default to true." % len(items) if not wrong else
-            "%d item(s) have required outside %s" % (len(wrong), sorted(allowed)))
+    if wrong:
+        return ("rubric_required_field", "failed",
+                "%d item(s) have required outside %s" % (len(wrong), sorted(allowed)))
+    # A required item that still awards partial credit has to say which band
+    # clears the gate. "required: true" plus an unannotated ladder is the
+    # ambiguity the client's field note was written to remove.
+    gate_terms = ("硬门槛", "hard gate", "hard-gate")
+    unannotated = []
+    for item in items:
+        if item.get("required") is not True:
+            continue
+        levels = item.get("score_levels") or {}
+        if not isinstance(levels, dict) or len(levels) < 2:
+            continue
+        text = " ".join(str(v) for v in levels.values())
+        if not any(t in text for t in gate_terms):
+            unannotated.append(item.get("rubric_item_id"))
+    if unannotated:
+        return ("rubric_required_field", "failed",
+                "%d required item(s) award partial credit but no score level says "
+                "whether it still clears the hard gate: %s"
+                % (len(unannotated), unannotated[:8]))
+    true_n = sum(1 for i in items if i.get("required") is True)
+    return ("rubric_required_field", "passed",
+            "All %d items carry a boolean required hard-gate designation "
+            "(%d true / %d false); partial-credit required items annotate the "
+            "gate band." % (len(items), true_n, len(items) - true_n))
 
 
 def rubric_item_count(record, policy, **_):
