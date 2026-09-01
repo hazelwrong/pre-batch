@@ -1,0 +1,6 @@
+interface:
+  display_name: "GDPval Pre-Batch"
+  short_description: "Run the current session-driven GDPval task pipeline"
+  default_prompt: "Use $pre-batch to inspect and advance this GDPval task package interactively in the current Codex conversation."
+policy:
+  allow_implicit_invocation: true

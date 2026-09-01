@@ -155,6 +155,13 @@ def main(argv):
     # for diagnosis; never package it.
     archive_to = os.environ.get("GDPVAL_ARCHIVE")
     if code == 0 and archive_to:
+        code = step(
+            "release hygiene and declared-path audit",
+            [sys.executable, os.path.join("pipeline", "audit_remediated_delivery.py"),
+             delivery],
+            env,
+        )
+    if code == 0 and archive_to:
         workflow_problems = record_and_check_workflows(task_ids, delivery)
         if workflow_problems:
             code = 1

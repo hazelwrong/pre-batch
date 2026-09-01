@@ -56,6 +56,18 @@ OOXML_SUFFIXES = {
 CJK_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
 HASH_LINE_RE = re.compile(r"^([0-9a-fA-F]{64})\s+(\d+)\s+(.+?)\s*$")
 FAIL_STATUSES = {"fail", "failed", "failure", "rejected", "error"}
+TEXT_SUFFIXES = {
+    ".csv", ".html", ".htm", ".json", ".jsonl", ".md", ".txt", ".xml", ".yaml", ".yml",
+}
+INTERNAL_WORKFLOW_PATTERNS = (
+    re.compile(r"evaluator[-_ ]term", re.I),
+    re.compile(r"evaluator[-_ ]side", re.I),
+    re.compile(r"_shared_r4(?:[_./-][A-Za-z0-9_.-]+)?", re.I),
+    re.compile(r"清理制作口径披露"),
+    re.compile(r"对外交付采用中性业务表述"),
+    re.compile(r"current_rebuilt_disclosure_cleaned_bytes", re.I),
+    re.compile(r"answer[-_ ]artifact terminology", re.I),
+)
 
 
 @dataclass(frozen=True)
@@ -624,6 +636,31 @@ class Audit:
                         f"passed check {check.get('check')!r} contains pending human credentials/rights state",
                     )
 
+    @staticmethod
+    def readable_text(path: Path) -> str | None:
+        if path.suffix.lower() not in TEXT_SUFFIXES:
+            return None
+        try:
+            return path.read_text(encoding="utf-8-sig")
+        except (OSError, UnicodeError):
+            return None
+
+    def check_public_delivery_hygiene(self) -> None:
+        """Reject internal workflow residue without banning deterministic QA terms."""
+        for rel, path in self.files.items():
+            text = self.readable_text(path)
+            surfaces = [rel]
+            if text is not None:
+                surfaces.append(text)
+            for pattern in INTERNAL_WORKFLOW_PATTERNS:
+                if any(pattern.search(surface) for surface in surfaces):
+                    self.fail(
+                        "PUBLIC_DELIVERY_INTERNAL_RESIDUE",
+                        f"internal remediation/evaluator wording must stay outside delivery: {rel} "
+                        f"(matched {pattern.pattern!r})",
+                    )
+                    break
+
     def run(self) -> None:
         self.collect_tree()
         self.check_tasks()
@@ -632,6 +669,7 @@ class Audit:
         self.check_provenance()
         self.check_required_gates()
         self.check_validation_truthfulness()
+        self.check_public_delivery_hygiene()
 
 
 def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:

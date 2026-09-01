@@ -9,6 +9,12 @@ real deliverables, reviewer records, workbench state, or generated archives.
 
 - `build/pipeline/`: orchestrator, planner, assembler, review-kit builder, validator and tests
 - `产线规范/`: role contracts, policy, release invariants and Mermaid flowchart
+
+For V1/V2 remediation and public-delivery hygiene, follow
+`产线规范/V1V2迭代整改与发布卫生.md`. It separates deterministic QA tooling from
+actual AI-production evidence, keeps internal remediation working records outside
+`delivery/`, and fails release on dangling declared paths or unsupported review
+status claims.
 - `human-review-skill/`: separately callable staged human-review skill package
 
 The runtime expects evaluator-only task data under `build/tasks/` and writes

@@ -92,6 +92,8 @@ T10 不启动 LLM。它登记真实文件、许可、生产方式与变换记录
 
 未登记的 reason code 是契约错误，不得默认退回 T11，也不得继续发布。
 
+V1/V2 整改另须遵守 [V1V2迭代整改与发布卫生.md](V1V2迭代整改与发布卫生.md)。其中“确定性 QA 工具说明”“对外交付中的内部流程残留”“真实人审状态”和“悬空声明路径”是四类不同问题，不得合并为 AI 痕迹处理。
+
 ## 5. 预算与并发
 
 预算定义在 `policy.execution`：每角色有 `max_attempts_per_role`，每任务还有 `max_agent_runs_per_task`。失败、主动放弃和已准备后取消的 agent run 都计入总数；T10 计人工尝试但不计 agent runs。预算在创建 run 时检查：已经合法创建的最后一个 `prepared` run 必须允许执行和提交，不能因为 `used == limit` 被 planner 二次拦截。其失败后再创建新 run 才是预算耗尽，状态转 blocked，交给人决定替换材料、改任务、显式 override 或终止；不得静默加预算。更晚的同角色 current passed run 会使旧 prepared 变成 superseded，后者保留审计但不占并发 slot。
@@ -120,6 +122,8 @@ T10 不启动 LLM。它登记真实文件、许可、生产方式与变换记录
 
 1. 每任务检查 schema、路径、哈希、隔离、真实性声明、lineage、独立复算、rubric 执行、泄漏、安全、渲染、规范与当前人审材料。
 2. 批次检查 task id 唯一、bundle 隔离、manifest 全覆盖、跨任务重复和聚合状态。
+
+发布前还运行只读的对外交付卫生审计：保留正常的确定性 QA 证据，拒绝内部整改话术和工作底稿进入 `delivery/`，核对所有声明路径实际存在，并阻止没有真实当前版人审支持的通过或发布声明。任一正文或证据修改后，必须重跑 inventory/provenance、security scans、validation 与 final checksums；受影响的人审绑定按 change-impact 规则失效并重签。
 
 多任务 validator 为每个 task 保持独立 context，再生成批次汇总；任何任务的 `failed`、`not_run` 或 `stale` 都进入批次计数。`not_run` 表示证据缺失或工具未完成，不是豁免。final validation 记录绑定角色 artifact、rubric、人审、policy、validator 版本和 evidence digest。
 
