@@ -51,6 +51,6 @@ python3 pipeline/run.py <task-id>
 ## Boundaries
 
 - A role pass is not a release decision.
-- Preserve authentic deliverables byte-for-byte with source URL and SHA-256 evidence; references may be reconstructed only within policy.
+- Preserve `real_input_and_real_deliverable` Gold byte-for-byte with source URL and SHA-256 evidence. Permit task-scoped `desensitization` Gold only when the authentic source URL/hash, current-file hash, explicit transformation record, adopted source record, and hashed lineage all bind; never use that path for arbitrary generated Gold.
 - Keep prompt, Gold, expected values, and rubric mutually consistent without leaking answer-bearing material into references.
 - Stop and surface missing human input, missing rights/authenticity evidence, exhausted attempts, or operator-required conditions. Never fabricate evidence or a synthetic pass.

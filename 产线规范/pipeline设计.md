@@ -112,7 +112,7 @@ V1/V2 整改另须遵守 [V1V2迭代整改与发布卫生.md](V1V2迭代整改�
 
 如整改改变了审核人已签署的项目，pipeline 按 `policy.human_review.change_impact_layers` 将任务文件和生产 artifact 的真实变化映射到受影响层，只向对应原审核人生成一份 changed-items-only 补充复核 XLSX；补签表列明触发本层复核的变更输入，未变更决定自动延续，变更的 Rubric/Gold 才重新采纳和评分。补充复核不通过时回到新一轮整改，原始回执、历史整改与每轮补签均保留。整改后运行 pre-final validation；它只允许终审层为 `not_run`。随后冻结终审包，第三位真人只返回一个 `Final-Review.xlsx`。终审时间必须严格晚于前两层、全部 `closed_at`、补充确认、pre-final validation 和终审包冻结时间；相同时间戳不构成时间差。
 
-第一阶段审核包生成前另有两个 fail-close 入口：真实 deliverable 的逐文件来源记录必须包含 URL、来源哈希、权利主体、许可和获取日期，且当前文件必须与来源哈希逐字节一致；任务声明语言必须可识别，prompt 与 Rubric 的 criterion/verification 不得出现可机器判定的中英文错配。采用的 reference 不得标为 `synthetic`，脱敏或重构 reference 必须标为 `desensitization` 并登记 transformation record。这些缺口不得转嫁给审核专家。
+第一阶段审核包生成前另有两个 fail-close 入口：`real_input_and_real_deliverable` 的逐文件来源记录必须包含 URL、来源哈希、权利主体、许可和获取日期，且当前文件必须与来源哈希逐字节一致；任务范围内从真实来源脱敏或重构的 Gold 必须使用 `desensitization`，同时绑定真实来源 URL/哈希、当前字节哈希、明确转换说明、adopted source inventory 记录和经哈希校验的 lineage。任一绑定缺失或不一致即失败，`generated_deliverable` 不得借此通行。任务声明语言必须可识别，prompt 与 Rubric 的 criterion/verification 不得出现可机器判定的中英文错配。采用的 reference 不得标为 `synthetic`，脱敏或重构 reference 必须标为 `desensitization` 并登记 transformation record。这些缺口不得转嫁给审核专家。
 
 证据绑定 review basis 与 rubric 版本；三位签署人必须不同，职业专家资质状态、逐条采纳/修改/拒绝、Gold 评分与取证位置必须齐全。首审绑定 `initial_basis`，整改用 `from_basis_digest → to_basis_digest` 保留历史；后续变更只使实际依赖它的确认、validation 与 H-REG stale。终审冻结的 `review_payload_digest` 只绑定业务内容：当前 `tasks.jsonl` 任务行、已声明 reference 和 deliverable；验证证据可在终审后更新，但任何已审业务内容变更都会使终审失效。
 

@@ -47,7 +47,9 @@ are carried forward and no reviewer is required to manufacture an objection.
 
 ## Safety boundary
 
-`deliverable_files` are real Gold files and must be supplied by the task owner
-with per-file source URL and SHA-256 evidence. Do not commit them here. Never
+`deliverable_files` must use either the authentic byte-copy path or a
+task-scoped desensitization path bound to an authentic source, current-file
+hash, explicit transformation record, adopted source record, and hashed
+lineage. Do not commit them here. Never
 commit API keys, source manifests containing private URLs, client task data,
 human-review evidence, or generated ZIP files.

@@ -55,7 +55,7 @@ class TaskBuild:
         self.deliverable_sources = self._deliverable_sources()
 
     def _deliverable_sources(self):
-        """Bind every staged gold file to its public, byte-identical source.
+        """Bind every staged gold file to an authentic source and current bytes.
 
         A claim that a file is real is not evidence.  The curator supplies the
         immutable source digest and URL; this build verifies the staged bytes
@@ -65,7 +65,7 @@ class TaskBuild:
         if not isinstance(declared, list) or not declared:
             raise SystemExit(
                 "%s: gold_provenance.real_deliverable_files is required for "
-                "untouched deliverables" % self.task_id)
+                "authentic-source Gold" % self.task_id)
         by_name = {}
         for entry in declared:
             if not isinstance(entry, dict):
@@ -74,17 +74,51 @@ class TaskBuild:
             name = entry.get("filename")
             url = entry.get("source_url")
             digest = entry.get("source_sha256")
+            source_type = entry.get("source_type") or \
+                (self.task.gold_provenance or {}).get("source_type")
             if (not isinstance(name, str) or not isinstance(url, str)
                     or not url.startswith(("https://", "http://"))
                     or not isinstance(digest, str)
                     or len(digest) != 64
-                    or any(c not in "0123456789abcdef" for c in digest)):
+                    or any(c not in "0123456789abcdef" for c in digest)
+                    or source_type not in (
+                        "real_input_and_real_deliverable", "desensitization")):
                 raise SystemExit("%s: invalid real-deliverable source entry: %r"
                                  % (self.task_id, entry))
+            entry = dict(entry)
+            entry["source_type"] = source_type
+            if source_type == "desensitization":
+                current = entry.get("current_sha256")
+                transform = entry.get("transformation_record")
+                source_id = entry.get("source_record_id")
+                lineage = entry.get("lineage_path")
+                lineage_sha = entry.get("lineage_sha256")
+                inventory = next((row for row in self.task.source_inventory
+                                  if isinstance(row, dict)
+                                  and row.get("adopted") is not False
+                                  and row.get("source_id") == source_id), None)
+                lineage_abs = os.path.join(self.task.root, str(lineage or ""))
+                inventory_url = ((inventory or {}).get("source_url")
+                                 or (inventory or {}).get("canonical_url"))
+                if (not isinstance(current, str) or len(current) != 64
+                        or any(c not in "0123456789abcdef" for c in current)
+                        or not isinstance(transform, str) or not transform.strip()
+                        or transform == "none; exact source bytes"
+                        or not isinstance(lineage, str) or not lineage
+                        or os.path.isabs(lineage) or ".." in lineage.split("/")
+                        or not isinstance(lineage_sha, str) or len(lineage_sha) != 64
+                        or not os.path.isfile(lineage_abs)
+                        or sha256(lineage_abs) != lineage_sha
+                        or not inventory or inventory.get("source_type") != "desensitization"
+                        or inventory_url != url
+                        or inventory.get("source_sha256") != digest):
+                    raise SystemExit(
+                        "%s: incomplete or inconsistent desensitized-deliverable lineage: %s"
+                        % (self.task_id, name))
             if name in by_name:
                 raise SystemExit("%s: duplicate real-deliverable source: %s"
                                  % (self.task_id, name))
-            by_name[name] = dict(entry)
+            by_name[name] = entry
         if set(by_name) != set(self.dlvs):
             raise SystemExit("%s: real-deliverable source names %s do not match "
                              "staged deliverables %s" %
@@ -258,7 +292,10 @@ def copy_payload(builds):
         for name in build.dlvs:
             src = os.path.join(build.staging, "deliverable_files", name)
             dst = os.path.join(DELIVERY, "deliverable_files", build.dlv_bundle, name)
-            expected = build.deliverable_sources[name]["source_sha256"]
+            source = build.deliverable_sources[name]
+            expected = (source["source_sha256"]
+                        if source["source_type"] == "real_input_and_real_deliverable"
+                        else source["current_sha256"])
             if sha256(src) != expected:
                 raise SystemExit("%s: staged deliverable %s does not match its "
                                  "registered source SHA-256" % (build.task_id, name))
@@ -314,8 +351,11 @@ def write_tasks_jsonl(builds):
             "reference_file_hf_uris": [],
             "deliverable_files": ["deliverable_files/%s/%s" % (build.dlv_bundle, n)
                                   for n in build.dlvs],
-            "deliverable_file_urls": [build.deliverable_sources[n]["source_url"]
-                                        for n in build.dlvs],
+            "deliverable_file_urls": (
+                [build.deliverable_sources[n]["source_url"] for n in build.dlvs]
+                if all(build.deliverable_sources[n]["source_type"] ==
+                       "real_input_and_real_deliverable" for n in build.dlvs)
+                else []),
             "deliverable_file_hf_uris": [],
             "rubric_pretty": build.task.rubric_pretty,
             "rubric_json": json.dumps(items, ensure_ascii=False),
@@ -431,8 +471,11 @@ def write_provenance(pairs, builds):
             row.update((declaration.get("files") or {}).get(os.path.basename(rel), {}))
             if role == "deliverable":
                 source = build.deliverable_sources[os.path.basename(rel)]
-                row["source_url"] = source["source_url"]
-                row["source_sha256"] = source["source_sha256"]
+                for field in ("source_url", "source_sha256", "source_type",
+                              "current_sha256", "transformation_record",
+                              "source_record_id", "lineage_path", "lineage_sha256"):
+                    if field in source:
+                        row[field] = source[field]
             if role_block.get("revision_evidence") == "@gold_revision":
                 row["revision_evidence"] = ("validation_evidence/%s/gold_revision/"
                                             % task_id)

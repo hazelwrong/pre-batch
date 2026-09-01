@@ -49,13 +49,15 @@
     "fallback_generated_gold_allowed": false,
     "fallback_requires_written_client_approval": true,
     "real_deliverable_integrity": {
-      "direct_copy_required": true,
+      "direct_copy_required_for_authentic_path": true,
+      "desensitization_requires_source_and_current_hashes": true,
+      "desensitization_requires_transformation_and_hashed_lineage": true,
       "per_file_source_url_required": true,
       "per_file_source_sha256_required": true,
-      "note": "deliverable_files 必须逐字节复制真实来源文件。不得转格式、重构、脱敏或清除元数据；每个文件须在 gold_provenance.real_deliverable_files 中登记 filename、source_url、source_sha256。"
+      "note": "real_input_and_real_deliverable 路径必须逐字节复制真实来源文件；desensitization 路径须同时登记真实来源 URL/哈希、当前文件哈希、明确 transformation_record、source_record_id 与经哈希绑定的 lineage_path，且来源记录必须与 adopted source inventory 一致。不得以 desensitization 为任意生成文件伪装真实来源。"
     },
     "open_issue": "「gold 须由专家产出」的口径首轮提出至今未获甲方书面确认；现状 T001 走的是脚本起草+专家修订采纳，属于 rejected_paths，须单独挂账。",
-    "accepted_paths_note": "甲方 2026-08-23 口径:deliverable 真实、reference 经脱敏重构时,source_type 必须标注字面值 `desensitization`,而非 synthetic 或长别名。旧包如仍使用别名,必须迁移后才能进入 v4 发布门。"
+    "accepted_paths_note": "真实原字节交付物使用 real_input_and_real_deliverable；任务范围内由可核验真实来源脱敏或重构的 Gold 使用字面值 desensitization，并提供来源、当前字节、转换说明及哈希化 lineage 的闭环证据。generated_deliverable 仍为拒绝路径。"
   },
   "reference_files": {
     "allowed_formats": [

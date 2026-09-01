@@ -194,9 +194,9 @@ class Audit:
             files = record.get("deliverable_files")
             urls = record.get("deliverable_file_urls")
             if isinstance(files, list) and isinstance(urls, list):
-                if len(files) != len(urls):
+                if urls and len(files) != len(urls):
                     self.fail("DELIVERABLE_URL_COUNT",
-                              f"{label} has {len(files)} deliverables but {len(urls)} source URLs")
+                              f"{label} has {len(files)} deliverables but {len(urls)} current-byte URLs")
                 elif any(not isinstance(url, str) or not url.startswith(("https://", "http://"))
                          for url in urls):
                     self.fail("DELIVERABLE_URL", f"{label} has missing/invalid deliverable source URL")
@@ -488,6 +488,12 @@ class Audit:
     def check_provenance(self) -> None:
         rel = "manifests/provenance_manifest.jsonl"
         rows = self.read_jsonl(rel)
+        inventory_rows = self.read_jsonl("manifests/source_inventory.jsonl")
+        adopted_sources = {
+            row.get("source_id"): row for row in inventory_rows
+            if isinstance(row, dict) and row.get("adopted") is not False
+            and isinstance(row.get("source_id"), str)
+        }
         by_path: dict[str, dict[str, Any]] = {}
         for number, row in enumerate(rows, 1):
             if not isinstance(row, dict):
@@ -530,13 +536,81 @@ class Audit:
             if target.startswith("deliverable_files/"):
                 url = row.get("source_url")
                 source_digest = row.get("source_sha256")
+                source_type = row.get("source_type")
                 if not isinstance(url, str) or not url.startswith(("https://", "http://")):
                     self.fail("DELIVERABLE_SOURCE_URL", f"missing/invalid source URL: {target}")
                 if not isinstance(source_digest, str) or not re.fullmatch(r"[0-9a-f]{64}", source_digest):
                     self.fail("DELIVERABLE_SOURCE_HASH", f"missing/invalid source SHA-256: {target}")
-                elif self.sha256(path) != source_digest:
-                    self.fail("DELIVERABLE_SOURCE_HASH_MISMATCH",
-                              f"delivered bytes differ from registered source: {target}")
+                    continue
+                if source_type == "real_input_and_real_deliverable":
+                    if self.sha256(path) != source_digest:
+                        self.fail("DELIVERABLE_SOURCE_HASH_MISMATCH",
+                                  f"exact-copy deliverable differs from registered source: {target}")
+                    if row.get("current_sha256") not in (None, digest):
+                        self.fail("DELIVERABLE_CURRENT_HASH",
+                                  f"exact-copy current_sha256 does not match current bytes: {target}")
+                    if row.get("transformation_record") not in (None, "none; exact source bytes"):
+                        self.fail("DELIVERABLE_TRANSFORMATION_MODE",
+                                  f"exact-copy deliverable declares a transformation: {target}")
+                elif source_type == "desensitization":
+                    current_digest = row.get("current_sha256")
+                    transformation = row.get("transformation_record")
+                    lineage_path = row.get("lineage_path")
+                    lineage_digest = row.get("lineage_sha256")
+                    if not isinstance(current_digest, str) or not re.fullmatch(r"[0-9a-f]{64}", current_digest):
+                        self.fail("DELIVERABLE_CURRENT_HASH", f"missing/invalid current SHA-256: {target}")
+                    elif current_digest != digest or self.sha256(path) != current_digest:
+                        self.fail("DELIVERABLE_CURRENT_HASH_MISMATCH",
+                                  f"desensitized deliverable current hash does not match current bytes: {target}")
+                    if (not isinstance(transformation, str) or not transformation.strip()
+                            or transformation.strip() == "none; exact source bytes"):
+                        self.fail("DELIVERABLE_TRANSFORMATION_RECORD",
+                                  f"desensitized deliverable lacks an explicit transformation record: {target}")
+                    if not self.valid_relative_path(lineage_path):
+                        self.fail("DELIVERABLE_LINEAGE_PATH", f"missing/unsafe lineage path: {target}")
+                    else:
+                        lineage_file = self.root / lineage_path
+                        if not lineage_file.is_file():
+                            self.fail("DELIVERABLE_LINEAGE_MISSING",
+                                      f"lineage record is missing for {target}: {lineage_path}")
+                        elif (not isinstance(lineage_digest, str)
+                              or not re.fullmatch(r"[0-9a-f]{64}", lineage_digest)):
+                            self.fail("DELIVERABLE_LINEAGE_HASH",
+                                      f"missing/invalid lineage SHA-256: {target}")
+                        elif self.sha256(lineage_file) != lineage_digest:
+                            self.fail("DELIVERABLE_LINEAGE_HASH_MISMATCH",
+                                      f"lineage hash mismatch for {target}: {lineage_path}")
+                    source_id = row.get("source_record_id")
+                    source_record = adopted_sources.get(source_id)
+                    if not source_record:
+                        self.fail("DELIVERABLE_SOURCE_RECORD",
+                                  f"no adopted source inventory row matches {source_id!r}: {target}")
+                    else:
+                        inventory_url = source_record.get("source_url") or source_record.get("canonical_url")
+                        if inventory_url != url or source_record.get("source_sha256") != source_digest:
+                            self.fail("DELIVERABLE_SOURCE_RECORD_MISMATCH",
+                                      f"source URL/hash do not match adopted inventory row {source_id}: {target}")
+                        if source_record.get("source_type") != "desensitization":
+                            self.fail("DELIVERABLE_SOURCE_RECORD_TYPE",
+                                      f"adopted inventory row {source_id} is not desensitization: {target}")
+                else:
+                    self.fail("DELIVERABLE_SOURCE_TYPE",
+                              f"unsupported deliverable source_type {source_type!r}: {target}")
+
+        for number, task in enumerate(self.tasks, 1):
+            files = task.get("deliverable_files")
+            urls = task.get("deliverable_file_urls")
+            if not isinstance(files, list) or not isinstance(urls, list):
+                continue
+            modes = [by_path.get(path, {}).get("source_type") for path in files]
+            if modes and all(mode == "real_input_and_real_deliverable" for mode in modes):
+                expected = [by_path.get(path, {}).get("source_url") for path in files]
+                if urls != expected:
+                    self.fail("DELIVERABLE_URL_BINDING",
+                              f"tasks.jsonl record {number} exact-copy URLs do not match provenance")
+            elif "desensitization" in modes and urls:
+                self.fail("DELIVERABLE_URL_TRANSFORMED",
+                          f"tasks.jsonl record {number} must not present source URLs as current-byte URLs")
 
     def required_lookup(self, task_id: str) -> tuple[dict[str, bool], dict[str, bool]]:
         by_id: dict[str, bool] = {}

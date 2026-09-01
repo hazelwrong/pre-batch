@@ -127,6 +127,52 @@ class ReviewInputContractTest(unittest.TestCase):
                 self.task, self.delivery, self.task_id, self.policy,
                 {"digest": "a" * 64}, {"digest": "b" * 64})
 
+    def test_desensitized_deliverable_requires_and_binds_full_lineage(self):
+        self.deliverable.write_bytes(b"task scoped reconstructed gold")
+        current_sha = hashlib.sha256(self.deliverable.read_bytes()).hexdigest()
+        source_sha = hashlib.sha256(b"authentic source bytes").hexdigest()
+        lineage = self.task / "source_to_gold_lineage.json"
+        lineage.write_text('{"source":"SRC-GOLD","steps":["redact","rebuild"]}',
+                           encoding="utf-8")
+        provenance = json.loads(
+            (self.task / "gold_provenance.json").read_text(encoding="utf-8"))
+        provenance["source_type"] = "desensitization"
+        provenance["real_deliverable_files"][0].update({
+            "source_type": "desensitization",
+            "source_url": "https://example.org/authentic.pdf",
+            "source_sha256": source_sha,
+            "current_sha256": current_sha,
+            "source_record_id": "SRC-GOLD",
+            "transformation_record": "redacted identifiers and rebuilt task layout",
+            "lineage_path": "source_to_gold_lineage.json",
+            "lineage_sha256": hashlib.sha256(lineage.read_bytes()).hexdigest(),
+        })
+        self.write("gold_provenance.json", provenance)
+        inventory = json.loads(
+            (self.task / "source_inventory.json").read_text(encoding="utf-8"))
+        inventory.append({
+            "source_id": "SRC-GOLD", "source_type": "desensitization",
+            "description": "Authentic source for reconstructed gold",
+            "source_url": "https://example.org/authentic.pdf",
+            "source_sha256": source_sha, "license": "Project reference only",
+            "adopted": True, "transformation_record": "registered separately",
+        })
+        self.write("source_inventory.json", inventory)
+        manifest = prepare_review_input(
+            self.task, self.delivery, self.task_id, self.policy,
+            {"digest": "a" * 64}, {"digest": "b" * 64})
+        source = manifest["deliverable_sources"][0]
+        self.assertEqual(source["current_sha256"], current_sha)
+        self.assertEqual(source["source_record_id"], "SRC-GOLD")
+
+        provenance["real_deliverable_files"][0]["transformation_record"] = ""
+        self.write("gold_provenance.json", provenance)
+        with self.assertRaises(ReviewContractError) as caught:
+            prepare_review_input(
+                self.task, self.delivery, self.task_id, self.policy,
+                {"digest": "a" * 64}, {"digest": "b" * 64})
+        self.assertIn("transformation record", str(caught.exception))
+
     def test_duplicate_deliverable_basenames_require_explicit_paths(self):
         second = self.delivery / "deliverable_files" / "second" / "Original.xlsx"
         second.parent.mkdir(parents=True)

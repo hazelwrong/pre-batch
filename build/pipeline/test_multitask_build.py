@@ -107,8 +107,10 @@ class MultiTaskBuildTest(unittest.TestCase):
                                         "production_method": "supplier QA record",
                                         "drafted_by": "Supplier QA team"}}})
         write("gold_provenance.json", {
+            "source_type": "real_input_and_real_deliverable",
             "real_deliverable_files": [{
                 "filename": gold_name,
+                "source_type": "real_input_and_real_deliverable",
                 "source_url": "https://example.test/%s" % gold_name.replace(" ", "-"),
                 "source_sha256": BD.sha256(gold_dir / gold_name),
             }]})
@@ -180,7 +182,7 @@ class MultiTaskBuildTest(unittest.TestCase):
         payload = [r for r in rows if r["role"] in ("reference", "deliverable")]
         self.assertEqual(len(payload), 6)          # (2 refs + 1 gold) x 2 tasks
         self.assertEqual({r["source_type"] for r in payload},
-                         {"supplier_work_record", "supplier_deliverable"})
+                         {"supplier_work_record", "real_input_and_real_deliverable"})
         for row in payload:
             self.assertIn(row["task_id"], self.ids)
 

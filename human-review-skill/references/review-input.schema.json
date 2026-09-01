@@ -34,8 +34,26 @@
           "rights_holder": {"type": "string", "minLength": 1},
           "license": {"type": "string", "minLength": 1},
           "acquired_at": {"type": "string", "minLength": 1},
-          "transformation_record": {"const": "none; exact source bytes"}
-        }
+          "transformation_record": {"type": "string", "minLength": 1},
+          "source_record_id": {"type": "string", "minLength": 1},
+          "lineage_path": {"type": "string", "minLength": 1},
+          "lineage_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        },
+        "oneOf": [
+          {
+            "properties": {
+              "source_type": {"const": "real_input_and_real_deliverable"},
+              "transformation_record": {"const": "none; exact source bytes"}
+            }
+          },
+          {
+            "required": ["source_record_id", "lineage_path", "lineage_sha256"],
+            "properties": {
+              "source_type": {"const": "desensitization"},
+              "transformation_record": {"not": {"const": "none; exact source bytes"}}
+            }
+          }
+        ]
       }
     },
     "reference_sources": {

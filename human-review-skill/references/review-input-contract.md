@@ -73,7 +73,8 @@ delivery/<task_id>/
 
 - `material_pool` 中的真实交付物、配套输入和 reference。
 - 每个真实交付物在 `gold_provenance.real_deliverable_files` 中逐文件登记 `path`（同名文件时必填）、`source_url`、`source_sha256`、`source_type`、`rights_holder`、`license` 和 `acquired_at`；pipeline 复算当前文件 SHA-256。
-- `deliverable_files` 必须逐字节等于真实来源，不允许重构、脱敏、转格式或清除元数据。经过脱敏重构的 reference 记录 `source_type=desensitization` 和 transformation record，不能把它冒充成原文件。
+- `real_input_and_real_deliverable` 路径的 `deliverable_files` 必须逐字节等于真实来源，不允许重构、脱敏、转格式或清除元数据。
+- 任务范围内从可核验真实来源脱敏或重构的 Gold 可使用 `source_type=desensitization`；逐文件必须同时提供真实 `source_url`/`source_sha256`、与当前字节一致的 `current_sha256`、非空 `transformation_record`、匹配 adopted source inventory 的 `source_record_id`，以及存在且哈希匹配的 `lineage_path`/`lineage_sha256`。缺一即 fail-close，且不得用于任意生成文件伪装真实来源。
 - 已采用的 reference 不得标为 `synthetic`；只要发生过脱敏或重构，就必须同时使用 `source_type=desensitization` 并填写 `transformation_record`。
 - 公开发布、甲方内部使用、第三方再分发和转授权分别记录，不用一个模糊的 `allowed` 概括四种范围。
 - 受限使用授权必须记录真实决策人、实际角色、带时区决策时间、task ID、授权范围、证据文件与 SHA-256；任务级授权和例外不得扩展成全局 policy。

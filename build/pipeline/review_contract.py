@@ -128,7 +128,7 @@ def _profiles(task, policy):
     return profiles
 
 
-def _deliverable_sources(task, delivery, record):
+def _deliverable_sources(task, delivery, record, source_inventory):
     provenance = _read_json(task / "gold_provenance.json")
     rows = provenance.get("real_deliverable_files")
     if not isinstance(rows, list) or not rows:
@@ -181,21 +181,58 @@ def _deliverable_sources(task, delivery, record):
         if not SHA256.fullmatch(source_sha):
             raise ReviewContractError("deliverable source SHA-256 is invalid: %s" % name)
         current_sha = _sha256(path)
-        if source_sha != current_sha:
-            raise ReviewContractError(
-                "deliverable is not an exact source-byte copy: %s" % name)
         source_type = str(source.get("source_type") or
                           provenance.get("source_type") or "").strip()
-        if not source_type:
+        if source_type not in ("real_input_and_real_deliverable", "desensitization"):
             raise ReviewContractError(
-                "deliverable source %s is missing source_type" % name)
-        result.append({"path": rel, "filename": name, "source_url": url,
-                       "source_sha256": source_sha, "current_sha256": current_sha,
-                       "source_type": source_type,
-                       "rights_holder": source["rights_holder"],
-                       "license": source["license"],
-                       "acquired_at": source["acquired_at"],
-                       "transformation_record": "none; exact source bytes"})
+                "deliverable source %s has unsupported source_type" % name)
+        normalized = {"path": rel, "filename": name, "source_url": url,
+                      "source_sha256": source_sha, "current_sha256": current_sha,
+                      "source_type": source_type,
+                      "rights_holder": source["rights_holder"],
+                      "license": source["license"],
+                      "acquired_at": source["acquired_at"]}
+        if source_type == "real_input_and_real_deliverable":
+            if source_sha != current_sha:
+                raise ReviewContractError(
+                    "deliverable is not an exact source-byte copy: %s" % name)
+            normalized["transformation_record"] = "none; exact source bytes"
+        else:
+            declared_current = str(source.get("current_sha256") or "").lower()
+            transformation = str(source.get("transformation_record") or "").strip()
+            source_id = str(source.get("source_record_id") or "").strip()
+            lineage_path = Path(str(source.get("lineage_path") or ""))
+            lineage_sha = str(source.get("lineage_sha256") or "").lower()
+            inventory = next((item for item in source_inventory
+                              if isinstance(item, dict)
+                              and item.get("adopted") is not False
+                              and item.get("source_id") == source_id), None)
+            if declared_current != current_sha:
+                raise ReviewContractError(
+                    "desensitized deliverable current_sha256 does not match: %s" % name)
+            if not transformation or transformation == "none; exact source bytes":
+                raise ReviewContractError(
+                    "desensitized deliverable needs a transformation record: %s" % name)
+            if (lineage_path.is_absolute() or ".." in lineage_path.parts
+                    or not lineage_path.as_posix() or not SHA256.fullmatch(lineage_sha)):
+                raise ReviewContractError(
+                    "desensitized deliverable needs a safe hashed lineage record: %s" % name)
+            lineage_file = task / lineage_path
+            if not lineage_file.is_file() or _sha256(lineage_file) != lineage_sha:
+                raise ReviewContractError(
+                    "desensitized deliverable lineage record does not match: %s" % name)
+            inventory_url = ((inventory or {}).get("source_url")
+                             or (inventory or {}).get("canonical_url"))
+            if (not inventory or inventory.get("source_type") != "desensitization"
+                    or inventory_url != url
+                    or inventory.get("source_sha256") != source_sha):
+                raise ReviewContractError(
+                    "desensitized deliverable source does not match an adopted inventory row: %s" % name)
+            normalized.update({"transformation_record": transformation,
+                               "source_record_id": source_id,
+                               "lineage_path": lineage_path.as_posix(),
+                               "lineage_sha256": lineage_sha})
+        result.append(normalized)
     if set(by_path) != set(declared):
         raise ReviewContractError(
             "gold provenance and current deliverable inventory do not match")
@@ -283,7 +320,8 @@ def prepare_review_input(task_root, delivery_root, task_id, policy, basis,
             "basis_digest": basis["digest"],
         },
         "files": sorted(files, key=lambda item: (item["scope"], item["path"])),
-        "deliverable_sources": _deliverable_sources(task, delivery, record),
+        "deliverable_sources": _deliverable_sources(
+            task, delivery, record, source_inventory),
         "reference_sources": source_inventory,
         "rights": {
             "rights_holder": defaults["rights_holder"],
