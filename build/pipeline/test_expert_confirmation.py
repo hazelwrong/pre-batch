@@ -52,6 +52,7 @@ class ExpertConfirmationTest(unittest.TestCase):
                                           "--project-root", str(root), "--signed", str(signed)]):
                 EC.main()
             self.assertTrue((root / "专家签署函归档" / signed.name).is_file())
+            self.assertFalse(signed.exists())
 
     def test_rejects_fixed_content_and_line_ending_changes(self):
         data = EC._canonical_input(self.sample())

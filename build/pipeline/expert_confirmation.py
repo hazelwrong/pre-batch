@@ -191,10 +191,16 @@ def _parse_signed(expected, actual):
     return signatures
 
 
-def verify(args):
-    data = _canonical_input(_load(args.input))
-    pending, archive_path = _paths(args.project_root, data)
-    signed = Path(args.signed).resolve()
+def verify_confirmation(input_path, project_root, signed_path):
+    """Validate, archive, and remove one returned confirmation.
+
+    The returned structure is workbench control data.  It may be used to build
+    a human-review record, but the archive path and signature checksum must not
+    be copied into the task package or its public manifests.
+    """
+    data = _canonical_input(_load(input_path))
+    pending, archive_path = _paths(project_root, data)
+    signed = Path(signed_path).resolve()
     if signed != pending.resolve():
         raise ValueError("signed confirmation must be the generated file in 待签署专家任务书/")
     signatures = _parse_signed(_render(data), signed.read_bytes().decode("utf-8"))
@@ -214,6 +220,12 @@ def verify(args):
     else:
         shutil.copy2(signed, archive_path)
     result["archive_path"] = str(archive_path)
+    signed.unlink()
+    return data, result
+
+
+def verify(args):
+    _data, result = verify_confirmation(args.input, args.project_root, args.signed)
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 

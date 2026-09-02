@@ -59,12 +59,13 @@ file.
   need not disclose the drafting workflow, but an unsigned or unreviewed draft
   is never human-review evidence.
 - After validation, place only the signed Markdown at
-  `<project-root>/专家签署函归档/`. Do not copy it into `delivery/`, manifests,
-  inventories, checksums, or public package narratives. Preserve the validated
-  result in workbench-side control data for the later human-review registration.
-- Record the signed expert conclusion as the human conclusion. Do not present
-  it as a model decision and do not manually change a package's existing
-  `human_review_record.json` merely to make a gate pass.
+  `<project-root>/专家签署函归档/` and remove the returned copy from
+  `待签署专家任务书/`. Do not copy it into `delivery/`, manifests, inventories,
+  checksums, or public package narratives.
+- `record-external-confirmation` writes the confirmed reviewer names, dates,
+  statuses and opinions into the workbench H-REG `human_review_record.json`.
+  That JSON does not contain the confirmation path/hash and does not describe
+  how the review text was drafted. Do not manually edit it merely to make a gate pass.
 
 Do not manually author or merge a JSON file to bypass staged review. A
 `delivery/validation_evidence/<task_id>/human_review_record.json` may exist while
@@ -136,7 +137,8 @@ python3 pipeline/orchestrator.py record-human-review \
   workbench/<task_id>
 python3 pipeline/expert_confirmation.py create \
   --input frozen-confirmation.json --project-root <project-root>
-python3 pipeline/expert_confirmation.py verify \
+python3 pipeline/orchestrator.py record-external-confirmation \
+  workbench/<task_id> \
   --input frozen-confirmation.json --project-root <project-root> \
   --signed <project-root>/待签署专家任务书/<task-id>_<revision>_专家审查确认函.md
 ```

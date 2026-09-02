@@ -25,6 +25,7 @@ from validation_registry import (
     BASE_VALIDATION_CHECKS, VALIDATION_REGISTRY_VERSION,
     expected_validation_checks, validation_registry_digest,
 )
+from expert_confirmation import LAYERS as EXPERT_REVIEW_LAYERS, verify_confirmation
 
 
 HERE = Path(__file__).resolve().parent
@@ -1389,6 +1390,90 @@ class Pipeline:
         self._save(state)
         return state["human_review"]
 
+    def record_external_confirmation(self, input_path, project_root, signed_path):
+        """Verify an external three-layer confirmation and register H-REG.
+
+        The signed Markdown and its verification details stay outside the task
+        package.  The H-REG JSON contains only the expert-confirmed opinions,
+        identities, dates and current review-basis/validation bindings; it does
+        not describe how the review text was drafted or where the signature
+        file came from.
+        """
+        rules = ((self.policy.get("human_review") or {})
+                 .get("external_combined_confirmation") or {})
+        if not rules.get("enabled"):
+            raise PipelineError("external combined confirmation is disabled")
+        state = self._load()
+        missing = [role for role in PRODUCTION_ROLES
+                   if not self._current_run(state, role)]
+        if missing:
+            raise PipelineError("human review requires current roles: %s" %
+                                ", ".join(missing))
+        if not self._gate_is_current(state, "validation"):
+            raise PipelineError(
+                "external human-review registration requires current final validation")
+        try:
+            declared_task_id = _read_json(Path(input_path).resolve()).get("task_id")
+        except (OSError, ValueError, AttributeError) as exc:
+            raise PipelineError("confirmation input is not a valid JSON object") from exc
+        if declared_task_id != state["task_id"]:
+            raise PipelineError("confirmation task_id does not match workflow")
+
+        try:
+            data, verification = verify_confirmation(
+                input_path, project_root, signed_path)
+        except (OSError, ValueError) as exc:
+            raise PipelineError(str(exc)) from exc
+
+        by_layer = {item["layer"]: item for item in verification["layers"]}
+        record = {
+            "schema_version": "expert-confirmed-human-review-v1",
+            "task_id": state["task_id"],
+            "revision": data["revision"],
+            "record_type": "human review",
+            "review_scope": data["scope"],
+            "review_basis_digest": verification["review_basis_digest"],
+            "layers": [{
+                "layer": layer,
+                "reviewer_id": by_layer[layer]["signed_name"],
+                "reviewed_on": by_layer[layer]["date"],
+                "status": "passed",
+                "opinion": data["conclusions"][layer],
+            } for layer in EXPERT_REVIEW_LAYERS],
+            "validation_gate_id": state["gates"]["validation"]["gate_id"],
+            "validation_evidence_digest": state["artifacts"][
+                "validation_evidence"]["digest"],
+        }
+        gate_id = str(uuid4())
+        control_root = self.root / "gates" / "external_confirmation" / gate_id
+        control_root.mkdir(parents=True)
+        _write_json(control_root / "verification.json", verification)
+        record_root = self.root / "gates" / "hreg" / gate_id
+        record_root.mkdir(parents=True)
+        record_path = record_root / "human_review_record.json"
+        _write_json(record_path, record)
+        artifact = self.add_artifact(
+            "human_review_record", [record_path], "human-registration")
+        state = self._load()
+        basis = {name: state["artifacts"][name]["digest"]
+                 for name in GATE_INPUTS["release"]
+                 if name in state["artifacts"] and name != "human_review_record"}
+        state["human_review"] = {
+            "status": "passed",
+            "recorded_at": _now(),
+            "validation_gate_id": state["gates"]["validation"]["gate_id"],
+            "artifact_digest": artifact["digest"],
+            "basis": basis,
+            "reviewers": [by_layer[layer]["signed_name"]
+                          for layer in EXPERT_REVIEW_LAYERS],
+        }
+        if state.get("review_cycle"):
+            state["human_review"]["review_cycle_id"] = state["review_cycle"].get(
+                "cycle_id")
+            state["review_cycle"]["status"] = "release_ready"
+        self._save(state)
+        return state["human_review"]
+
     def migrate_policy_scopes(self, previous_policy_path, changed_sections):
         previous_policy_path = Path(previous_policy_path).resolve()
         previous = _read_json(previous_policy_path)
@@ -1529,6 +1614,13 @@ def main(argv=None):
     p.add_argument("workspace")
     p.add_argument("record", nargs="?")
     p = sub.add_parser(
+        "record-external-confirmation",
+        help="verify one signed three-layer confirmation and register H-REG")
+    p.add_argument("workspace")
+    p.add_argument("--input", required=True)
+    p.add_argument("--project-root", required=True)
+    p.add_argument("--signed", required=True)
+    p = sub.add_parser(
         "migrate-policy-scope",
         help="bind legacy runs to role-scoped policy after a verified policy change")
     p.add_argument("workspace")
@@ -1559,6 +1651,9 @@ def main(argv=None):
                     args.delivery, args.stage, args.tasks_root)
             elif args.command == "record-human-review":
                 result = pipeline.record_human_review(args.record)
+            elif args.command == "record-external-confirmation":
+                result = pipeline.record_external_confirmation(
+                    args.input, args.project_root, args.signed)
             elif args.command == "migrate-policy-scope":
                 result = pipeline.migrate_policy_scopes(
                     args.previous_policy, args.changed_sections)

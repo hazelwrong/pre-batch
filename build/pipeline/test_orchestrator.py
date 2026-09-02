@@ -7,6 +7,7 @@ everything downstream. The guards added in v2 — real-deliverable gold,
 placeholder-free prompts, separating power, check coverage — are tested by the
 rejection cases rather than by reading the code.
 """
+import argparse
 import json
 import sys
 import tempfile
@@ -16,6 +17,7 @@ from unittest import mock
 from uuid import uuid4
 
 import openpyxl
+import expert_confirmation as EC
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from orchestrator import (Pipeline, PipelineError, DEFAULT_POLICY,
@@ -566,6 +568,58 @@ class PipelineTest(unittest.TestCase):
         record_path.write_text(json.dumps(record), encoding="utf-8")
         self.pipeline.record_human_review(record_path)
         self.assertTrue(self.pipeline.status()["release_ready"])
+
+    def test_signed_external_confirmation_becomes_human_review_record(self):
+        self.build_through_review()
+        state = self.pipeline._load()
+        bindings = {}
+        for key, _label, kind in EC.REQUIRED_BINDINGS:
+            if kind == "sha256":
+                bindings[key] = "a" * 64
+            elif kind == "integer":
+                bindings[key] = "40"
+            elif kind == "number":
+                bindings[key] = "100"
+            else:
+                bindings[key] = "v1-required"
+        payload = {
+            "task_package": "T0001_test", "task_id": state["task_id"],
+            "revision": "V2", "bindings": bindings,
+            "scope": "确认当前 Prompt、Reference、Gold、lineage、Rubric 与 A10–A12。",
+            "conclusions": {
+                "general_review": "通审通过。",
+                "occupational_expert_review": "职业审查通过。",
+                "final_review": "passed_for_A12S。",
+            },
+        }
+        project = self.base / "project"
+        project.mkdir()
+        source = project / "frozen-confirmation.json"
+        source.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        EC.create(argparse.Namespace(input=str(source), project_root=str(project)))
+        signed = (project / "待签署专家任务书" /
+                  (state["task_id"] + "_V2_专家审查确认函.md"))
+        text = signed.read_text(encoding="utf-8")
+        text = text.replace("| general_review |  |  |",
+                            "| general_review | 张三 | 2026-09-02 |")
+        text = text.replace("| occupational_expert_review |  |  |",
+                            "| occupational_expert_review | 李四 | 2026-09-02 |")
+        signed.write_text(text.replace("| final_review |  |  |",
+                                       "| final_review | 王五 | 2026-09-03 |"),
+                          encoding="utf-8")
+
+        self.pipeline.record_external_confirmation(source, project, signed)
+        state = self.pipeline._load()
+        artifact = state["artifacts"]["human_review_record"]
+        record_path = self.workspace / artifact["path"] / "human_review_record.json"
+        record = json.loads(record_path.read_text(encoding="utf-8"))
+        self.assertEqual([row["opinion"] for row in record["layers"]],
+                         ["通审通过。", "职业审查通过。", "passed_for_A12S。"])
+        self.assertNotIn("source", record)
+        self.assertNotIn("signature", json.dumps(record, ensure_ascii=False))
+        self.assertTrue(self.pipeline.status()["release_ready"])
+        self.assertFalse(signed.exists())
+        self.assertTrue((project / "专家签署函归档" / signed.name).is_file())
 
     def test_human_review_policy_change_does_not_stale_production_roles(self):
         policy_path = self.base / "scoped-policy.json"
