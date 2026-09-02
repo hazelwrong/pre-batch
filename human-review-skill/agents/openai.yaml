@@ -1,6 +1,6 @@
 interface:
-  display_name: "Human Review GDPval"
-  short_description: "Run staged human review for GDPval"
-  default_prompt: "Use $human-review-gdpval to review this GDPval task package and record evidence-bound findings."
+  display_name: "GDPval Human Review · Current"
+  short_description: "Run current evidence-bound GDPval human review"
+  default_prompt: "Use $human-review-gdpval to prepare and register the current staged GDPval human-review workflow without substituting model output for real reviewer decisions."
 policy:
   allow_implicit_invocation: true

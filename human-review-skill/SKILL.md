@@ -1,6 +1,6 @@
 ---
 name: "human-review-gdpval"
-description: "Perform staged human review of GDPval task packages, including general QA, occupational expert review, final review, remediation confirmation, and current-version hash sign-off. Use when a task requires reviewer workbooks, substantive findings, review timing, signatures, or evidence-bound release checks."
+description: "Run the current pre-batch GDPval human-review workflow: prepare review materials, ingest genuine reviewer receipts, close remediation, and register evidence-bound H-REG. Use for current task-package human review; do not use for the legacy rolling batch backup."
 metadata:
   short-description: "Run staged human review for GDPval"
 ---
@@ -10,6 +10,45 @@ metadata:
 Use this skill for GDPval human-review work. Treat the repository's
 `产线规范/agent_roles.json` and `产线规范/policy.json` as the machine-readable
 source of truth; do not invent a parallel policy in prompts or scripts.
+
+## Human decision boundary
+
+- Codex may run deterministic checks, draft findings, prepare reviewer
+  workbooks, and prefill fields derived from package evidence. Those outputs
+  are review assistance, not a completed human review.
+- The assigned real reviewer must inspect the package and the prepared
+  workbook, decide the layer's verdict and any human-judgement scores, correct
+  the draft where needed, and confirm the actual completion time. A signature
+  alone does not turn model-authored scores or opinions into human review.
+- Never invent or pre-author a person's identity, title, credential, completion
+  time, verdict, score, opinion, or signature. Never ask someone to rubber-stamp
+  a decision they did not make.
+
+## Inputs and outputs
+
+For a pipeline-native task, use the current workbench, delivery tree and
+generated review kit. For a historical or non-native bundle, first read
+`references/review-input-contract.md`, enforce its adjacent schema, and
+normalize the input before recording any review.
+
+The workflow produces four distinct evidence layers:
+
+1. Automated validation results and draft reviewer materials.
+2. Immutable receipts returned by the real general reviewer, occupational
+   expert and final reviewer, including their actual decisions.
+3. Remediation and changed-items-only confirmations where required.
+4. After strict final validation, an H-REG `human_review_record.json` generated
+   by `record-human-review` from the staged receipts and bound to the current
+   validation digest.
+
+Do not manually author or merge a JSON file to bypass staged review. A
+`delivery/validation_evidence/<task_id>/human_review_record.json` may exist while
+reviews are incomplete and may correctly say `not_run`; it is validation
+evidence, not proof of release approval. In the current staged workflow, the
+formal H-REG record is generated under
+`workbench/<task_id>/gates/hreg/<uuid>/human_review_record.json` only after all
+three layers pass and final validation is current. H-REG registers completed
+review; it is not another reviewer or another scoring round.
 
 ## Safety and evidence boundary
 
