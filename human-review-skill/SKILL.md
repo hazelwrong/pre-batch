@@ -41,6 +41,31 @@ The workflow produces four distinct evidence layers:
    by `record-human-review` from the staged receipts and bound to the current
    validation digest.
 
+## External combined confirmation
+
+When the project explicitly uses a simplified signature return, the supervisor
+starts one fresh, scoped subagent after the review basis and proposed
+conclusions are frozen. It creates one Markdown confirmation for
+`general_review`, `occupational_expert_review`, and `final_review`; each real
+reviewer only fills their own signed name and `YYYY-MM-DD` date in that one
+file.
+
+- Create and verify the file with `pipeline/expert_confirmation.py`. Its fixed
+  binding includes the task, revision, review-basis digest, and supplied
+  content hashes; verification rejects any change outside the six signature
+  cells, blank signatures, invalid dates, or duplicate signers.
+- The expert must actually inspect the bound review material and confirm that
+  the displayed conclusion is their current decision. The confirmation text
+  need not disclose the drafting workflow, but an unsigned or unreviewed draft
+  is never human-review evidence.
+- After validation, place only the signed Markdown at
+  `<project-root>/专家签署函归档/`. Do not copy it into `delivery/`, manifests,
+  inventories, checksums, or public package narratives. Preserve the validated
+  result in workbench-side control data for the later human-review registration.
+- Record the signed expert conclusion as the human conclusion. Do not present
+  it as a model decision and do not manually change a package's existing
+  `human_review_record.json` merely to make a gate pass.
+
 Do not manually author or merge a JSON file to bypass staged review. A
 `delivery/validation_evidence/<task_id>/human_review_record.json` may exist while
 reviews are incomplete and may correctly say `not_run`; it is validation
@@ -109,6 +134,11 @@ python3 pipeline/orchestrator.py record-validation \
   workbench/<task_id> delivery --stage final
 python3 pipeline/orchestrator.py record-human-review \
   workbench/<task_id>
+python3 pipeline/expert_confirmation.py create \
+  --input frozen-confirmation.json --project-root <project-root>
+python3 pipeline/expert_confirmation.py verify \
+  --input frozen-confirmation.json --project-root <project-root> \
+  --signed <project-root>/待签署专家任务书/<task-id>_<revision>_专家审查确认函.md
 ```
 
 Read `产线规范/pipeline设计.md` for the full role isolation matrix, rework

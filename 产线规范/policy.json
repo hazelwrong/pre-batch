@@ -244,6 +244,27 @@
   },
   "human_review": {
     "workflow_mode": "staged_xlsx_v1",
+    "external_combined_confirmation": {
+      "enabled": true,
+      "preparation_context": "one_fresh_scoped_subagent",
+      "single_markdown_per_task": true,
+      "layers": [
+        "general_review",
+        "occupational_expert_review",
+        "final_review"
+      ],
+      "signature_fields": [
+        "signed_name",
+        "date_yyyy_mm_dd"
+      ],
+      "distinct_signatories_required": 3,
+      "archive_root_relative": "专家签署函归档",
+      "archive_outside_delivery": true,
+      "delivery_manifest_reference_forbidden": true,
+      "fixed_binding_verification_required": true,
+      "actual_expert_confirmation_required": true,
+      "human_conclusion_provenance_text": "record only the expert-confirmed conclusion; do not describe drafting workflow"
+    },
     "input_contract_schema": "review-input-v1",
     "phase1_parallel": true,
     "phase1_nonpass_routes_to_remediation": true,

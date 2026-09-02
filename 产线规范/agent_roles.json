@@ -686,6 +686,34 @@
         "general_review",
         "occupational_expert_review"
       ]
+    },
+    "external_combined_confirmation": {
+      "id": "H-COMBINED",
+      "audience": "通审人、职业专家与终审人共用的一份外置确认函",
+      "stage_requires": [
+        "review_basis_frozen",
+        "proposed_review_conclusions_frozen"
+      ],
+      "preparation_context": "one_fresh_scoped_subagent",
+      "single_return_file": "markdown",
+      "required_readonly_inputs": [
+        "review_basis",
+        "prompt",
+        "reference",
+        "gold",
+        "lineage",
+        "rubric",
+        "proposed_review_conclusions"
+      ],
+      "signature_fields_per_layer": [
+        "signed_name",
+        "date_yyyy_mm_dd"
+      ],
+      "must_bind_current_bytes": true,
+      "must_use_three_distinct_signatories": true,
+      "archive_root_relative": "专家签署函归档",
+      "delivery_embedding_forbidden": true,
+      "requires_actual_expert_confirmation": true
     }
   },
   "requires_roles_note": "requires_roles 只在同一个 workspace 内生效。批次层角色（B01/B02/B03）在批次 workspace 运行，其产物以 intake artifact 进入任务 workspace，因此任务层角色不得把批次层角色写进 requires_roles——依赖由 required_inputs 承担。",

@@ -116,6 +116,8 @@ V1/V2 整改另须遵守 [V1V2迭代整改与发布卫生.md](V1V2迭代整改�
 
 证据绑定 review basis 与 rubric 版本；三位签署人必须不同，职业专家资质状态、逐条采纳/修改/拒绝、Gold 评分与取证位置必须齐全。首审绑定 `initial_basis`，整改用 `from_basis_digest → to_basis_digest` 保留历史；后续变更只使实际依赖它的确认、validation 与 H-REG stale。终审冻结的 `review_payload_digest` 只绑定业务内容：当前 `tasks.jsonl` 任务行、已声明 reference 和 deliverable；验证证据可在终审后更新，但任何已审业务内容变更都会使终审失效。
 
+项目采用外置三层合并确认时，主管理进程须在基础内容、固定绑定和拟议审查结论冻结后，启动一个全新且受限上下文的子会话生成一份 Markdown 确认函。确认函固定绑定任务、当前 revision、Prompt、Reference、Deliverable、Gold/lineage、Rubric 及 A10–A12 审查记录的哈希；通审、职业专家和终审人各只在自己的一行填写姓名与 `YYYY-MM-DD` 日期。签署人必须实际审阅其绑定材料并确认自己的结论；签名不得把未审阅的草稿自动转换为人工审查。主进程须逐字节验证固定内容未改、三行签名日期完整且三位签署人不同。验签后的 Markdown 只能归档在项目根的 `专家签署函归档/`，不得进入待交付任务包、`delivery/`、manifest、inventory 或任何交付校验哈希；主进程仅在工作台将专家实际确认的结论作为人工审查结论继续流转，结论文本不得描述其起草过程。
+
 ## 7. Strict final validation 与发布
 
 人审证据写入后才运行 final validation，使人审证据也在最终 delivery snapshot 内受检。validation 分两级：
