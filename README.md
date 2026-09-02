@@ -32,13 +32,17 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -q \
   test_package.py
 ```
 
-The full validator and review-workbook render tests additionally depend on the
-bundled document/spreadsheet runtime. The release path is staged: two parallel
-first-layer XLSX reviews, remediation, pre-final validation, a later third-person
-final XLSX review, strict final validation, H-REG, then the deterministic
-two-archive hash check.
+The default release path uses one external Markdown confirmation with three
+independent signature rows after A10-A12 conclusions and current byte bindings
+are frozen. A validated return first materializes the evaluator-only reviewer
+roster, strict validation runs on the resulting candidate, and H-REG then writes
+the workbench human-review record. Release hygiene and the deterministic
+two-archive hash check follow. The older
+two-stage XLSX review path remains available only as an explicitly selected
+compatibility workflow for projects that need item-by-item reviewer editing and
+supplemental finding closure.
 
-Review-package generation is fail-closed against `review-input-v1`. Each
+In `staged_xlsx_v1` compatibility mode, review-package generation is fail-closed against `review-input-v1`. Each
 reviewer workbook includes a tailored brief and current file inventory. A
 Conditional pass, Fail, conditional occupation mapping, Rubric Revise/Reject or
 explicit confirmation request enters remediation; only affected original

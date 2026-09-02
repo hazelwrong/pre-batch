@@ -574,6 +574,13 @@
       ]
     }
   },
+  "human_review_default_contract": "external_combined_confirmation",
+  "human_review_compatibility_contracts": [
+    "general_review",
+    "occupational_expert_review",
+    "supplemental_review",
+    "final_review"
+  ],
   "human_review_contracts": {
     "general_review": {
       "id": "H01",

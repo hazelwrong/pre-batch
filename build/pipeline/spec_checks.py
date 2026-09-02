@@ -256,12 +256,15 @@ def expert_rejection_recorded(reviewers, policy, **_):
     experts = reviewers.get("occupational_expert_review") or []
     experts = experts if isinstance(experts, list) else [experts]
     signed = [e for e in experts
-              if e.get("reviewer") and e.get("title") and e.get("date")
+              if e.get("reviewer") and (e.get("title") or e.get("review_role"))
+              and e.get("date")
+              and e.get("review_role") in (None, "occupational_expert_review")
               and e.get("counts_toward_acceptance") is not False]
     if not signed:
         return ("expert_rejection_recorded", "not_run",
                 "%d returned expert-feedback record(s), but none has an "
-                "acceptance-eligible reviewer identity, title and date" % len(experts))
+                "acceptance-eligible reviewer identity, review role/title and date"
+                % len(experts))
     experts = signed
     # A roster carried across from an accepted record holds the adoption summary
     # rather than the individual rounds. Both are evidence of the same thing;

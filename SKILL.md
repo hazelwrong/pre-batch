@@ -17,22 +17,23 @@ This is the primary task-package production workflow. Operate the implementation
 - Read `产线规范/V1V2迭代整改与发布卫生.md` before issuing V1/V2 remediation instructions or deciding public-delivery hygiene and release readiness.
 - Keep real deliverables, evaluator-only task data, workbench state, reviewer evidence, staging output, and release ZIPs outside this skill directory.
 
-## Session-driven operation
+## Default session-driven operation
 
-Work one task or a small explicitly selected set through the current Codex conversation. Do not start a rolling batch driver.
+Work one task or a small explicitly selected set through the current Codex conversation. Do not start a rolling batch driver. The default human-review route is one external Markdown with three independent signature rows; the staged XLSX route is compatibility-only and must be explicitly requested.
 
-1. Inspect readiness without mutating state:
+1. Triage V0 plus client findings before changing files. Decide the earliest affected responsibility layer and preserve every current, unaffected artifact. A field-only repair does not justify rebuilding the whole package; a changed Gold, Prompt, Reference, lineage or Rubric restarts the dependent roles.
+2. Inspect readiness without mutating state:
 
    ```bash
    cd <skill-root>/build
    python3 pipeline/manage.py next <workbench-root> --slots 4 --json
    ```
 
-2. Prepare only roles whose dependencies are current. Preserve the input isolation declared for T10-T15; never expose Gold or evaluator-only artifacts to a role that is not allowed to see them.
-3. Perform each ready role in a fresh, scoped Codex context, write only its declared outputs, and submit with the declared status and `reason_code`. Do not hand-edit stale state back to current.
-4. After the base content and review conclusions are frozen, the supervisor must launch one fresh, scoped subagent to prepare a single external Markdown confirmation for the three review layers. Use `pipeline/expert_confirmation.py create`; send the resulting file to the three real reviewers. Each reviewer may only fill that review layer's name and `YYYY-MM-DD` date.
-5. When the signed file returns, run `pipeline/orchestrator.py record-external-confirmation`. It validates the same frozen binding, moves the signed Markdown to `<project-root>/专家签署函归档/`, removes the returned copy from `待签署专家任务书/`, and writes the three actual expert-confirmed conclusions to the workbench H-REG `human_review_record.json`. That human-review JSON contains the reviewer names, dates, statuses and opinions, but no confirmation path/hash or drafting-source narrative. Do not place the confirmation in `delivery/`, manifests, inventories, checksums, or public-delivery narratives.
-6. Release only after strict validation, current three-layer human-review evidence, H-REG binding, public-delivery hygiene audit, and two byte-identical archive builds.
+3. Prepare only roles whose dependencies are current. Preserve the input isolation declared for T10-T15; never expose Gold or evaluator-only artifacts to a role that is not allowed to see them. T13 and T14 may run in parallel after T12; do not serialize them unnecessarily.
+4. Perform each ready role in a fresh, scoped Codex context, write only its declared outputs, and submit with the declared status and `reason_code`. Do not hand-edit stale state back to current. Consolidate deterministic checks into the fixed validator instead of creating extra narrative QA stages.
+5. Freeze the current business bytes and A10-A12 proposed review conclusions. The supervisor must launch one fresh, scoped subagent to prepare a single external Markdown confirmation with separate rows for `general_review`, `occupational_expert_review`, and `final_review`. Use `pipeline/expert_confirmation.py create`. Each real reviewer may fill only that layer's name and `YYYY-MM-DD` date.
+6. When the signed file returns, run `pipeline/orchestrator.py record-external-confirmation` with `--tasks-root`. It validates the frozen binding, archives the Markdown outside delivery, removes the pending return, and materializes only the expert-confirmed reviewer roster in evaluator-only task data. It does not mention the confirmation path/hash or drafting source.
+7. Rebuild the candidate, run strict final validation, then run `record-human-review` to write the H-REG `human_review_record.json` bound to that validation. Release only after current H-REG, public-delivery hygiene audit, and two byte-identical archive builds.
 
 Useful entry points:
 
@@ -42,10 +43,6 @@ python3 pipeline/orchestrator.py status <workbench-root>/<task-id>
 python3 pipeline/orchestrator.py prepare <workbench-root>/<task-id> <role> \
   --agent-id <attempt-id> --context-id <context-id>
 python3 pipeline/orchestrator.py submit <workbench-root>/<task-id> <run-id> passed
-python3 pipeline/review_kits.py phase1 \
-  <workbench-root>/<task-id> <delivery-root> <output-root>/<task-id> \
-  --tasks-root <tasks-root> --staging-root <staging-root> \
-  --node <bundled-node> --node-modules <bundled-node-modules>
 python3 pipeline/expert_confirmation.py create \
   --input <frozen-review-confirmation.json> \
   --project-root <project-root>
@@ -53,9 +50,17 @@ python3 pipeline/orchestrator.py record-external-confirmation \
   <workbench-root>/<task-id> \
   --input <frozen-review-confirmation.json> \
   --project-root <project-root> \
+  --tasks-root <tasks-root> \
   --signed <project-root>/待签署专家任务书/<task-id>_<revision>_专家审查确认函.md
+python3 pipeline/orchestrator.py record-validation \
+  <workbench-root>/<task-id> <delivery-root> --stage final \
+  --tasks-root <tasks-root>
+python3 pipeline/orchestrator.py record-human-review \
+  <workbench-root>/<task-id>
 python3 pipeline/run.py <task-id>
 ```
+
+Use `pipeline/review_kits.py` only when the operator explicitly selects the legacy `staged_xlsx_v1` compatibility workflow. Do not generate both XLSX review kits and the external confirmation for the same revision.
 
 ## Boundaries
 

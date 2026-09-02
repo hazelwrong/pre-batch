@@ -100,11 +100,17 @@ V1/V2 整改另须遵守 [V1V2迭代整改与发布卫生.md](V1V2迭代整改�
 
 四个 slot 是全批次共享上限，不是每任务四个。调度优先填充不同任务的 ready 节点；单任务不会为了占满 slot 而越过 T11→T15 的依赖。
 
-## 6. 两阶段、三层人审
+## 6. 默认外置三层确认与兼容人审
 
-角色生产与 rubric 完成后，先生成并验证 `review-input-v1`。该机器契约一次性绑定任务与版本、prompt/Rubric/Gold/reference/deliverable 路径及哈希、真实来源与权利边界、职业标准卡和三层审查人画像。字段缺失、真实 deliverable 与来源哈希不一致、权利边界不完整或三位画像不覆盖全部审查层时 fail-close，不生成空壳审核包。
+默认使用 `external_combined_confirmation_v1`。角色生产、固定校验和 A10–A12 拟议审查结论完成后，冻结当前业务字节与全部 binding；主管理进程启动一个全新、受限上下文的子会话生成一份 Markdown。通审、职业专家审查和终审人分别只填写本层姓名与 `YYYY-MM-DD` 日期。此路径不再生成 `Candidate-Delivery-Package.zip`、`Phase-1-Human-Review-Kit.zip`、补签 XLSX 或 `Final-Review-Package.zip`。
 
-契约通过后先冻结 `Candidate-Delivery-Package.zip`，并生成 `Phase-1-Human-Review-Kit.zip`。每份审核工作簿必须有面向当前审核人的审核摘要与文件清单，明确行业、职业、范围、真实来源、权利边界、字节数和 SHA-256。通用审查与职业专家审查可并行；每位审核人只返回一个 XLSX。职业专家在同一工作簿中完成职业映射、rubric 逐条采纳和 Gold 逐条评分，不再在 MD 与 TSV 间切换。工作簿跟随任务语言，不得因模板引入不必要的中英混排。
+真实性、权利、隐私、Prompt/Gold 隔离、冷解题/复算、Rubric 可判性、严格 validation、H-REG、交付卫生和双 ZIP 仍是硬门；简化只删除重复的人审载体，不删除质量证据。
+
+只有项目方明确选择 `staged_xlsx_v1` 时，才生成并回收下述 XLSX 审核包。该兼容路径适合需要审核人逐条改写、逐项 Gold 评分和多轮 finding 补签的任务；不得与默认外置确认路径叠加。
+
+兼容路径先生成并验证 `review-input-v1`。该机器契约绑定任务与版本、prompt/Rubric/Gold/reference/deliverable 路径及哈希、真实来源与权利边界、职业标准卡和三层审查人画像。字段缺失、真实 deliverable 与来源哈希不一致、权利边界不完整或三位画像不覆盖全部审查层时 fail-close。
+
+契约通过后冻结 `Candidate-Delivery-Package.zip`，并生成 `Phase-1-Human-Review-Kit.zip`。通用审查与职业专家审查可并行；每位审核人只返回一个 XLSX。职业专家在同一工作簿中完成职业映射、rubric 逐条采纳和 Gold 逐条评分。
 
 项目方从真实回执录入姓名、职务、带时区时间和资质状态，原始 XLSX 逐字节保留并登记 SHA-256。姓名、时间、资质不得由 pipeline 推断或补造；缺少资质证据时使用 `credential_status=not_supplied`。
 
@@ -116,7 +122,7 @@ V1/V2 整改另须遵守 [V1V2迭代整改与发布卫生.md](V1V2迭代整改�
 
 证据绑定 review basis 与 rubric 版本；三位签署人必须不同，职业专家资质状态、逐条采纳/修改/拒绝、Gold 评分与取证位置必须齐全。首审绑定 `initial_basis`，整改用 `from_basis_digest → to_basis_digest` 保留历史；后续变更只使实际依赖它的确认、validation 与 H-REG stale。终审冻结的 `review_payload_digest` 只绑定业务内容：当前 `tasks.jsonl` 任务行、已声明 reference 和 deliverable；验证证据可在终审后更新，但任何已审业务内容变更都会使终审失效。
 
-项目采用外置三层合并确认时，主管理进程须在基础内容、固定绑定和拟议审查结论冻结后，启动一个全新且受限上下文的子会话生成一份 Markdown 确认函。确认函固定绑定任务、当前 revision、Prompt、Reference、Deliverable、Gold/lineage、Rubric 及 A10–A12 审查记录的哈希；通审、职业专家和终审人各只在自己的一行填写姓名与 `YYYY-MM-DD` 日期。签署人必须实际审阅其绑定材料并确认自己的结论；签名不得把未审阅的草稿自动转换为人工审查。主进程须逐字节验证固定内容未改、三行签名日期完整且三位签署人不同。验签后的 Markdown 只能归档在项目根的 `专家签署函归档/`，待签目录中的返回件随即清除；它不得进入待交付任务包、`delivery/`、manifest、inventory 或任何交付校验哈希。主进程把三层专家实际确认的姓名、日期、状态和意见写入工作台 H-REG `human_review_record.json`；该 JSON 不写确认函路径/哈希，也不描述意见起草过程。
+默认外置确认函固定绑定任务、当前 revision、Prompt、Reference、Deliverable、Gold/lineage、Rubric 及 A10–A12 审查记录的哈希。签署人必须实际审阅本层绑定材料并确认本层结论；主进程逐字节验证固定内容未改、三行签名日期完整且三位签署人不同。验签后的 Markdown 只能归档在项目根的 `专家签署函归档/`，待签目录中的返回件随即清除；它不得进入待交付任务包、`delivery/`、manifest、inventory 或任何交付校验哈希。验签后先把三层姓名、日期、角色、状态和意见登记成 evaluator-only reviewer roster，再重建当前候选并运行 strict final validation；随后 H-REG 写入 `human_review_record.json` 并绑定 validation digest。两个 JSON 均不写确认函路径/哈希，也不描述意见起草过程。
 
 ## 7. Strict final validation 与发布
 
@@ -132,9 +138,9 @@ V1/V2 整改另须遵守 [V1V2迭代整改与发布卫生.md](V1V2迭代整改�
 ```text
 T10 Gold 落地/登记与固定技术预检
 → T11–T15 角色生产
-→ 首审两包并行回收
-→ finding 闭环 + pre-final validation
-→ 第三位真人终审
+→ A10–A12 结论与当前业务字节冻结
+→ 一份外置 Markdown 三层分别签名
+→ 验签并迁移 evaluator-only reviewer roster
 → strict final validation：failed=0、not_run=0、stale=0
 → H-REG 登记既有人审记录并绑定 validation digest
 → 冻结 snapshot
@@ -142,7 +148,7 @@ T10 Gold 落地/登记与固定技术预检
 → 发布
 ```
 
-新式 staged workflow 的 `run.py` 直接从 review cycle 执行 H-REG；旧 workflow 才读取 `GDPVAL_HUMAN_REVIEW_ROOT` 或 `GDPVAL_HUMAN_REVIEW_RECORDS`。三份原始 XLSX、项目方录入、整改记录、终审包或 validation 任一发生变化，H-REG 都会失效。
+默认外置确认 workflow 的 `run.py` 在 final validation 后从已验签的 pending confirmation 执行 H-REG。兼容的 staged workflow 则从 review cycle 执行 H-REG；只有历史 combined-record 入口读取 `GDPVAL_HUMAN_REVIEW_ROOT` 或 `GDPVAL_HUMAN_REVIEW_RECORDS`。签署、reviewer roster、XLSX 回执（若选兼容模式）、整改记录或 validation 任一发生变化，依赖它的 H-REG 都会失效。
 
 final validation 通过后执行 H-REG：`record-human-review` 把先前已完成的人审记录登记进 workflow，并将它绑定到当前 validation digest；H-REG 不是第二次审阅。任一任务未通过时禁止部分发布。workflow 的 `release_ready` 只由当前角色、strict final validation 与 H-REG 证据派生，不能由配置、人工布尔值或命令退出码直接设置；它仍不是最终发布收据。只有设置 `GDPVAL_ARCHIVE` 的实际发布路径才会核对批次内全部 workflow，并执行两次 zip 哈希比较。
 

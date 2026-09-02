@@ -571,6 +571,12 @@ class PipelineTest(unittest.TestCase):
 
     def test_signed_external_confirmation_becomes_human_review_record(self):
         self.build_through_review()
+        waiting = self.pipeline.status()
+        self.assertEqual(waiting["human_review_workflow"],
+                         "external_combined_confirmation_v1")
+        self.assertEqual(waiting["workflow_stage"],
+                         "external_confirmation_required")
+        self.assertIn("three-row", waiting["next_action"])
         state = self.pipeline._load()
         bindings = {}
         for key, _label, kind in EC.REQUIRED_BINDINGS:
@@ -618,8 +624,73 @@ class PipelineTest(unittest.TestCase):
         self.assertNotIn("source", record)
         self.assertNotIn("signature", json.dumps(record, ensure_ascii=False))
         self.assertTrue(self.pipeline.status()["release_ready"])
+        self.assertEqual(self.pipeline.status()["workflow_stage"],
+                         "release_packaging_required")
         self.assertFalse(signed.exists())
         self.assertTrue((project / "专家签署函归档" / signed.name).is_file())
+
+    def test_external_confirmation_materializes_roster_before_final_hreg(self):
+        self.build_through_review()
+        state = self.pipeline._load()
+        tasks = self.base / "tasks"
+        task = tasks / state["task_id"]
+        task.mkdir(parents=True)
+        items = rubric_items()
+        codes = ["R%02d" % (index + 1) for index in range(len(items))]
+        (task / "task_meta.json").write_text(json.dumps({
+            "task_id": state["task_id"], "rubric_version": "v1-required",
+            "item_codes": codes,
+        }), encoding="utf-8")
+        (task / "rubric.json").write_text(json.dumps(items), encoding="utf-8")
+        bindings = {}
+        for key, _label, kind in EC.REQUIRED_BINDINGS:
+            bindings[key] = ("a" * 64 if kind == "sha256" else
+                             "40" if kind == "integer" else
+                             "100" if kind == "number" else "v1-required")
+        payload = {
+            "task_package": "T0001_test", "task_id": state["task_id"],
+            "revision": "V2", "bindings": bindings,
+            "scope": "确认当前 Prompt、Reference、Gold、lineage、Rubric 与 A10–A12。",
+            "conclusions": {
+                "general_review": "通审通过。",
+                "occupational_expert_review": "职业审查通过。",
+                "final_review": "passed_for_A12S。",
+            },
+        }
+        project = self.base / "project-pending"
+        project.mkdir()
+        source = project / "frozen-confirmation.json"
+        source.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        EC.create(argparse.Namespace(input=str(source), project_root=str(project)))
+        signed = (project / "待签署专家任务书" /
+                  (state["task_id"] + "_V2_专家审查确认函.md"))
+        signed_text = signed.read_text(encoding="utf-8")
+        for layer, name, date in (
+                ("general_review", "张三", "2026-09-02"),
+                ("occupational_expert_review", "李四", "2026-09-02"),
+                ("final_review", "王五", "2026-09-03")):
+            signed_text = signed_text.replace(
+                "| %s |  |  |" % layer,
+                "| %s | %s | %s |" % (layer, name, date))
+        signed.write_text(signed_text, encoding="utf-8")
+
+        pending = self.pipeline.record_external_confirmation(
+            source, project, signed, tasks)
+        self.assertEqual(pending["status"], "verified_pending_final_validation")
+        roster_text = (task / "reviewers.json").read_text(encoding="utf-8")
+        self.assertNotIn("confirmation", roster_text.lower())
+        self.assertNotIn("sha256", roster_text.lower())
+        self.assertEqual(self.pipeline.status()["workflow_stage"],
+                         "strict_validation_required")
+
+        self.pipeline.record_validation(self.base / "delivery", tasks_root=tasks)
+        self.pipeline.record_human_review()
+        self.assertTrue(self.pipeline.status()["release_ready"])
+        record_artifact = self.pipeline._load()["artifacts"]["human_review_record"]
+        record = (self.workspace / record_artifact["path"] /
+                  "human_review_record.json").read_text(encoding="utf-8")
+        self.assertNotIn("confirmation", record.lower())
+        self.assertNotIn("signature", record.lower())
 
     def test_human_review_policy_change_does_not_stale_production_roles(self):
         policy_path = self.base / "scoped-policy.json"

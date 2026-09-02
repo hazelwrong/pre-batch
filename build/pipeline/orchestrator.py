@@ -1363,6 +1363,12 @@ class Pipeline:
                     "staged review workspaces build H-REG from immutable receipts; "
                     "do not supply an external combined record")
             return self._record_staged_human_review(state)
+        if state.get("external_confirmation_pending"):
+            if record_path is not None:
+                raise PipelineError(
+                    "pending external confirmation builds H-REG from its verified "
+                    "three-layer record; do not supply another review record")
+            return self._record_pending_external_hreg(state)
         if not self._gate_is_current(state, "validation"):
             raise PipelineError("human review requires a current validation gate")
         if record_path is None:
@@ -1390,41 +1396,9 @@ class Pipeline:
         self._save(state)
         return state["human_review"]
 
-    def record_external_confirmation(self, input_path, project_root, signed_path):
-        """Verify an external three-layer confirmation and register H-REG.
-
-        The signed Markdown and its verification details stay outside the task
-        package.  The H-REG JSON contains only the expert-confirmed opinions,
-        identities, dates and current review-basis/validation bindings; it does
-        not describe how the review text was drafted or where the signature
-        file came from.
-        """
-        rules = ((self.policy.get("human_review") or {})
-                 .get("external_combined_confirmation") or {})
-        if not rules.get("enabled"):
-            raise PipelineError("external combined confirmation is disabled")
-        state = self._load()
-        missing = [role for role in PRODUCTION_ROLES
-                   if not self._current_run(state, role)]
-        if missing:
-            raise PipelineError("human review requires current roles: %s" %
-                                ", ".join(missing))
+    def _write_external_hreg(self, state, data, verification):
         if not self._gate_is_current(state, "validation"):
-            raise PipelineError(
-                "external human-review registration requires current final validation")
-        try:
-            declared_task_id = _read_json(Path(input_path).resolve()).get("task_id")
-        except (OSError, ValueError, AttributeError) as exc:
-            raise PipelineError("confirmation input is not a valid JSON object") from exc
-        if declared_task_id != state["task_id"]:
-            raise PipelineError("confirmation task_id does not match workflow")
-
-        try:
-            data, verification = verify_confirmation(
-                input_path, project_root, signed_path)
-        except (OSError, ValueError) as exc:
-            raise PipelineError(str(exc)) from exc
-
+            raise PipelineError("external H-REG requires current final validation")
         by_layer = {item["layer"]: item for item in verification["layers"]}
         record = {
             "schema_version": "expert-confirmed-human-review-v1",
@@ -1444,12 +1418,9 @@ class Pipeline:
             "validation_evidence_digest": state["artifacts"][
                 "validation_evidence"]["digest"],
         }
-        gate_id = str(uuid4())
-        control_root = self.root / "gates" / "external_confirmation" / gate_id
-        control_root.mkdir(parents=True)
-        _write_json(control_root / "verification.json", verification)
+        gate_id = verification.get("gate_id") or str(uuid4())
         record_root = self.root / "gates" / "hreg" / gate_id
-        record_root.mkdir(parents=True)
+        record_root.mkdir(parents=True, exist_ok=True)
         record_path = record_root / "human_review_record.json"
         _write_json(record_path, record)
         artifact = self.add_artifact(
@@ -1459,20 +1430,143 @@ class Pipeline:
                  for name in GATE_INPUTS["release"]
                  if name in state["artifacts"] and name != "human_review_record"}
         state["human_review"] = {
-            "status": "passed",
-            "recorded_at": _now(),
+            "status": "passed", "recorded_at": _now(),
             "validation_gate_id": state["gates"]["validation"]["gate_id"],
-            "artifact_digest": artifact["digest"],
-            "basis": basis,
+            "artifact_digest": artifact["digest"], "basis": basis,
             "reviewers": [by_layer[layer]["signed_name"]
                           for layer in EXPERT_REVIEW_LAYERS],
         }
+        state.pop("external_confirmation_pending", None)
         if state.get("review_cycle"):
             state["human_review"]["review_cycle_id"] = state["review_cycle"].get(
                 "cycle_id")
             state["review_cycle"]["status"] = "release_ready"
         self._save(state)
         return state["human_review"]
+
+    def _record_pending_external_hreg(self, state):
+        pending = state.get("external_confirmation_pending") or {}
+        return self._write_external_hreg(
+            state, pending.get("data") or {}, pending.get("verification") or {})
+
+    def _materialize_external_reviewers(self, tasks_root, data, verification):
+        """Write the evaluator-only roster confirmed by the three experts."""
+        task_root = Path(tasks_root).resolve() / self._load()["task_id"]
+        meta_path, rubric_path = task_root / "task_meta.json", task_root / "rubric.json"
+        if not meta_path.is_file() or not rubric_path.is_file():
+            raise PipelineError(
+                "external review registration needs task_meta.json and rubric.json "
+                "under the evaluator-only task root")
+        meta, rubric = _read_json(meta_path), _read_json(rubric_path)
+        if not isinstance(rubric, list) or not rubric:
+            raise PipelineError("external review registration needs a non-empty rubric")
+        codes = meta.get("item_codes")
+        if not isinstance(codes, list) or len(codes) != len(rubric):
+            codes = ["R%02d" % (index + 1) for index in range(len(rubric))]
+        rubric_version = meta.get("rubric_version", "unversioned")
+        binding_values = {item["key"]: item["value"] for item in data["bindings"]}
+        if binding_values.get("rubric_version") != rubric_version:
+            raise PipelineError(
+                "confirmation rubric version does not match evaluator task data")
+        by_layer = {item["layer"]: item for item in verification["layers"]}
+        general, expert, final = (by_layer[layer] for layer in EXPERT_REVIEW_LAYERS)
+        roster = {
+            "general_review": {
+                "reviewer": general["signed_name"], "review_role": "general_review",
+                "date": general["date"],
+                "findings": data["conclusions"]["general_review"],
+                "counts_toward_acceptance": True,
+            },
+            "occupational_expert_review": [{
+                "reviewer": expert["signed_name"],
+                "review_role": "occupational_expert_review", "date": expert["date"],
+                "credential_status": "not_supplied",
+                "rubric_version_reviewed": rubric_version,
+                "items_reviewed": codes,
+                "adoption_rounds": [{"rubric_version": rubric_version,
+                                     "adopted": codes, "outcome": "adopted"}],
+                "remediated": True,
+                "findings": data["conclusions"]["occupational_expert_review"],
+                "counts_toward_acceptance": True,
+            }],
+            "final_review": {
+                "reviewer": final["signed_name"], "review_role": "final_review",
+                "date": final["date"],
+                "findings": data["conclusions"]["final_review"],
+                "counts_toward_acceptance": True,
+            },
+        }
+        roster_path = task_root / "reviewers.json"
+        existing = _read_json(roster_path) if roster_path.is_file() else {}
+        existing_names = []
+        for layer in EXPERT_REVIEW_LAYERS:
+            rows = existing.get(layer) or []
+            rows = rows if isinstance(rows, list) else [rows]
+            existing_names.extend(row.get("reviewer") for row in rows
+                                  if isinstance(row, dict) and row.get("reviewer")
+                                  and row.get("counts_toward_acceptance") is not False)
+        new_names = [by_layer[layer]["signed_name"] for layer in EXPERT_REVIEW_LAYERS]
+        if existing_names and set(existing_names) != set(new_names):
+            raise PipelineError(
+                "refusing to overwrite an existing acceptance-eligible reviewer roster")
+        _write_json(roster_path, roster)
+        return self.add_artifact(
+            "reviewers", [roster_path], "expert-confirmed-human-review")
+
+    def record_external_confirmation(self, input_path, project_root, signed_path,
+                                     tasks_root=None):
+        """Verify an external three-layer confirmation.
+
+        The signed Markdown and its verification details stay outside the task
+        package. New runs materialize an evaluator-only reviewer roster before
+        final validation and register H-REG afterwards; already-validated legacy
+        workspaces may register H-REG immediately. Public human-review JSON does
+        not describe how the review text was drafted or where the signature file
+        came from.
+        """
+        rules = ((self.policy.get("human_review") or {})
+                 .get("external_combined_confirmation") or {})
+        if not rules.get("enabled"):
+            raise PipelineError("external combined confirmation is disabled")
+        state = self._load()
+        missing = [role for role in PRODUCTION_ROLES
+                   if not self._current_run(state, role)]
+        if missing:
+            raise PipelineError("human review requires current roles: %s" %
+                                ", ".join(missing))
+        try:
+            declared_task_id = _read_json(Path(input_path).resolve()).get("task_id")
+        except (OSError, ValueError, AttributeError) as exc:
+            raise PipelineError("confirmation input is not a valid JSON object") from exc
+        if declared_task_id != state["task_id"]:
+            raise PipelineError("confirmation task_id does not match workflow")
+
+        try:
+            data, verification = verify_confirmation(
+                input_path, project_root, signed_path)
+        except (OSError, ValueError) as exc:
+            raise PipelineError(str(exc)) from exc
+
+        gate_id = str(uuid4())
+        control_root = self.root / "gates" / "external_confirmation" / gate_id
+        control_root.mkdir(parents=True)
+        verification["gate_id"] = gate_id
+        _write_json(control_root / "verification.json", verification)
+        if tasks_root is None:
+            return self._write_external_hreg(state, data, verification)
+        self._materialize_external_reviewers(tasks_root, data, verification)
+        state = self._load()
+        state["external_confirmation_pending"] = {
+            "status": "verified_pending_final_validation",
+            "data": data, "verification": verification,
+        }
+        previous_validation = state.get("gates", {}).pop("validation", None)
+        if previous_validation:
+            state.setdefault("gate_history", {}).setdefault(
+                "validation", []).append(previous_validation)
+        state["human_review"] = None
+        self._save(state)
+        return state["external_confirmation_pending"]
 
     def migrate_policy_scopes(self, previous_policy_path, changed_sections):
         previous_policy_path = Path(previous_policy_path).resolve()
@@ -1562,13 +1656,30 @@ class Pipeline:
         checks = gates["validation"] == "current"
         human = "current" if self._human_review_is_current(state) else "missing_or_stale"
         cycle = state.get("review_cycle")
-        workflow_stage = (cycle.get("status") if cycle else
-                          "legacy_review_unstaged" if all_roles else
-                          "production")
+        review_mode = ((self.policy.get("human_review") or {}).get(
+            "workflow_mode", "external_combined_confirmation_v1"))
+        if cycle:
+            workflow_stage = cycle.get("status")
+            next_action = "continue staged XLSX compatibility workflow"
+        elif not all_roles:
+            workflow_stage = "production"
+            next_action = "run the earliest missing or stale T10-T15 role"
+        elif gates["validation"] != "current":
+            workflow_stage = "strict_validation_required"
+            next_action = "run the fixed strict validator on the frozen candidate"
+        elif human != "current":
+            workflow_stage = "external_confirmation_required"
+            next_action = (
+                "create or return the three-row external expert confirmation")
+        else:
+            workflow_stage = "release_packaging_required"
+            next_action = "run delivery hygiene audit and deterministic double ZIP"
         return {
             "task_id": state["task_id"], "roles": roles, "gates": gates,
             "human_review": human,
+            "human_review_workflow": review_mode,
             "workflow_stage": workflow_stage,
+            "next_action": next_action,
             "release_ready": all_roles and checks and human == "current",
         }
 
@@ -1615,11 +1726,12 @@ def main(argv=None):
     p.add_argument("record", nargs="?")
     p = sub.add_parser(
         "record-external-confirmation",
-        help="verify one signed three-layer confirmation and register H-REG")
+        help="verify one signed three-layer confirmation and stage or register H-REG")
     p.add_argument("workspace")
     p.add_argument("--input", required=True)
     p.add_argument("--project-root", required=True)
     p.add_argument("--signed", required=True)
+    p.add_argument("--tasks-root")
     p = sub.add_parser(
         "migrate-policy-scope",
         help="bind legacy runs to role-scoped policy after a verified policy change")
@@ -1653,7 +1765,7 @@ def main(argv=None):
                 result = pipeline.record_human_review(args.record)
             elif args.command == "record-external-confirmation":
                 result = pipeline.record_external_confirmation(
-                    args.input, args.project_root, args.signed)
+                    args.input, args.project_root, args.signed, args.tasks_root)
             elif args.command == "migrate-policy-scope":
                 result = pipeline.migrate_policy_scopes(
                     args.previous_policy, args.changed_sections)

@@ -243,7 +243,10 @@
     "source_inventory_min": 5000
   },
   "human_review": {
-    "workflow_mode": "staged_xlsx_v1",
+    "workflow_mode": "external_combined_confirmation_v1",
+    "compatibility_workflow_modes": [
+      "staged_xlsx_v1"
+    ],
     "external_combined_confirmation": {
       "enabled": true,
       "preparation_context": "one_fresh_scoped_subagent",

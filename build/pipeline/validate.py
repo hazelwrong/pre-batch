@@ -67,7 +67,8 @@ ALL_RECORDS = []
 
 def _signed_reviewer(entry):
     """Whether a reviewer entry is eligible to support an acceptance claim."""
-    return bool(entry and entry.get("reviewer") and entry.get("title")
+    return bool(entry and entry.get("reviewer")
+                and (entry.get("title") or entry.get("review_role"))
                 and entry.get("date")
                 and entry.get("counts_toward_acceptance") is not False)
 
@@ -1273,7 +1274,9 @@ def main():
     # Returned forms may carry useful findings while their identity fields are
     # still unresolved. Preserve those records, but do not let a non-empty list
     # masquerade as a signed occupational review (or crash name rendering).
-    experts = [entry for entry in expert_records if _signed_reviewer(entry)]
+    experts = [entry for entry in expert_records
+               if _signed_reviewer(entry) and
+               entry.get("review_role") in (None, "occupational_expert_review")]
     unsigned_expert_feedback = [entry for entry in expert_records
                                 if not _signed_reviewer(entry)]
     expert_qualification = next(
@@ -1400,7 +1403,8 @@ def main():
         # accepting only one shape made the roster's format a hidden precondition.
         if isinstance(who, list):
             who = who[0] if who else None
-        if not _signed_reviewer(who):
+        if (not _signed_reviewer(who) or
+                who.get("review_role") not in (None, name)):
             missing = [field for field in ("reviewer", "title", "date")
                        if not (who or {}).get(field)]
             attempts = roster.get("_final_review_attempts") or []
